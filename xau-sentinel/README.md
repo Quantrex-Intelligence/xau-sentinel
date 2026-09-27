@@ -152,6 +152,30 @@ Conversation history persists per `conversation_id` in its own `ai_messages`
 SQLite table (added via its own migration, same pattern as
 `risk/fundednext_journal.py` — the frozen Stage 1 schema is never touched).
 
+## A+ Strategy Evaluation (Stage 4)
+
+A second, stricter evaluation layered on top of the Stage 1 setup detector
+— `GET /api/strategy/aplus`, shown on the Next.js Setups page next to (not
+replacing) the frozen `SetupPanel`. It encodes a locked, user-specified
+strategy (see `ai/strategy/rules.py` for every threshold and its source)
+as explicit criteria: H1 bias, a qualifying liquidity sweep within a
+60-minute window, M5 MSS, displacement, retracement, a stop-loss beyond
+the swept level, a minimum 1:3 reward:risk against the nearest qualifying
+opposing liquidity level, and a FundedNext risk gate (SAFE and daily loss
+used below 50%). A candidate is invalidated by an opposing M5 structure
+break, H1 bias flipping to the hard opposite state, or the sweep aging
+past the window — all checked before scoring the rest.
+
+`ai/strategy/evaluator.py` computes the rating (`A+` / `DEVELOPING` /
+`INVALID`) entirely from these deterministic checks; an LLM call (via the
+same provider abstraction as Stage 3) only adds a plain-language
+explanation afterward and can never change the rating, even if it ignores
+its own instructions — a provider failure, missing config, or an
+attempted directive-style answer all leave the deterministic result
+untouched. A+ alerts are deduplicated by (direction, sweep timestamp) in
+the existing `alerts` table, so re-polling the same candidate never spams
+a second alert.
+
 ## Database
 
 SQLite at `data/xau_sentinel.db` (auto-created on first run), with tables
@@ -186,11 +210,26 @@ produce.
   invented for the assistant's benefit, and journal history is opt-in per
   request to avoid over-sharing.
 
+## Safety (A+ Strategy Evaluation)
+
+- Read-only like everything else here: the evaluator only ever returns a
+  rating and evidence — it never places, modifies, or closes an order, and
+  the LLM step it calls has no access to any order-placing function.
+- The deterministic rating is computed and finalized before the LLM is ever
+  called; the LLM can only attach an explanation, never change `rating`,
+  `criteria`, or `missing_conditions` — enforced structurally (the LLM step
+  receives an already-built result object and only sets its own
+  `llm_explanation`/`llm_error` fields).
+- No invented strategy rules: every threshold in `ai/strategy/rules.py`
+  traces to an explicit, user-provided specification, not a default assumed
+  by the model.
+
 ## Status
 
 All five original phases are implemented: MT5 connection + live dashboard,
 market structure/zones/liquidity/regime, the setup detector with alerts,
 the journal with automatic context capture, and journal analytics. Stage 2
-(FundedNext risk monitor) and Stage 3 (AI Assistant) are also implemented,
-on top of a FastAPI (`api/`) + Next.js (`frontend/`) layer that now sits
-alongside the original Streamlit UI (`app.py`, `ui/`) during the migration.
+(FundedNext risk monitor), Stage 3 (AI Assistant), and Stage 4 (A+ Strategy
+Evaluation) are also implemented, on top of a FastAPI (`api/`) + Next.js
+(`frontend/`) layer that now sits alongside the original Streamlit UI
+(`app.py`, `ui/`) during the migration.

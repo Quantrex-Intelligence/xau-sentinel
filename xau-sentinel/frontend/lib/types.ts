@@ -339,3 +339,42 @@ export interface AiConfig {
   model: string | null;
   reason: string | null;
 }
+
+/** Mirrors ai/strategy/schemas.py — the Stage 4 A+ strategy evaluation. */
+export type StrategyRating = "A+" | "DEVELOPING" | "INVALID";
+export type StrategyCriterionStatus = "passed" | "failed" | "unknown";
+
+export interface StrategyCriterion {
+  name: string;
+  status: StrategyCriterionStatus;
+  evidence: string;
+  required: boolean;
+}
+
+export interface FundedNextGate {
+  data_available: boolean;
+  safety_level: string | null;
+  daily_loss_used_pct: number | null;
+  max_daily_loss_used_pct_allowed: number;
+  reason: string | null;
+}
+
+export interface StrategyEvaluation {
+  rating: StrategyRating;
+  direction: "BUY" | "SELL" | null;
+  criteria: StrategyCriterion[];
+  context_evidence: string[];
+  missing_conditions: string[];
+  invalidation: string | null;
+  entry: number | null;
+  stop_loss: number | null;
+  target: number | null;
+  rr: number | null;
+  fundednext: FundedNextGate;
+  evaluated_at: string;
+  candidate_sweep_time: string | null;
+  llm_explanation: string | null;
+  llm_provider: string | null;
+  llm_model: string | null;
+  llm_error: string | null;
+}

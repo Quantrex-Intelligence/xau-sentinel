@@ -151,6 +151,29 @@ def log_alert(level: str, message: str, direction: str = "", details: Optional[d
         conn.commit()
 
 
+def has_recent_alert(level: str, direction: str, dedup_key: str, lookback: int = 50) -> bool:
+    """Checks whether an alert carrying this exact dedup_key (in its JSON
+    `details` blob) already exists for this level/direction, so a repeated
+    evaluation of the SAME candidate (e.g. the A+ strategy evaluator polled
+    again before the underlying liquidity sweep has changed) never produces
+    a duplicate alert. Reuses the existing `alerts` table/schema as-is — no
+    migration — the same way `log_event`'s own (event_time, event_type,
+    description) dedup already works for market events."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT details FROM alerts WHERE level = ? AND direction = ? ORDER BY id DESC LIMIT ?",
+            (level, direction, lookback),
+        ).fetchall()
+    for row in rows:
+        try:
+            details = json.loads(row["details"] or "{}")
+        except (TypeError, ValueError):
+            continue
+        if details.get("dedup_key") == dedup_key:
+            return True
+    return False
+
+
 def recent_events(limit: int = 10) -> pd.DataFrame:
     with get_connection() as conn:
         return pd.read_sql_query(

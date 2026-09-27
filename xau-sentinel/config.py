@@ -73,5 +73,19 @@ AI_API_KEY = os.getenv("AI_API_KEY", "").strip()
 AI_MODEL = os.getenv("AI_MODEL", "claude-haiku-4-5-20251001").strip()
 AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", 1024))
 
+
+# --- Stage 4: A+ Strategy Evaluation ---
+# Explicit, user-specified rules (locked spec, 2026) — never invented. See
+# ai/strategy/rules.py. All four values trace directly to numbered items in
+# the locked specification: sweep recency/expiry window (item 10), stop-loss
+# buffer beyond the swept level (item 8), minimum reward:risk (item 9), and
+# the FundedNext daily-loss-used gate (item 11).
+AI_STRATEGY_SWEEP_WINDOW_MINUTES = int(os.getenv("AI_STRATEGY_SWEEP_WINDOW_MINUTES", 60))
+AI_STRATEGY_SL_BUFFER = float(os.getenv("AI_STRATEGY_SL_BUFFER", 0.30))
+AI_STRATEGY_MIN_RR = float(os.getenv("AI_STRATEGY_MIN_RR", 3.0))
+AI_STRATEGY_FUNDEDNEXT_MAX_DAILY_LOSS_USED_PCT = float(
+    os.getenv("AI_STRATEGY_FUNDEDNEXT_MAX_DAILY_LOSS_USED_PCT", 50.0)
+)
+
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"

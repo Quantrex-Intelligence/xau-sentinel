@@ -71,6 +71,10 @@ def _default_thresholds(monkeypatch):
     monkeypatch.setattr(config, "LONDON_SESSION_END_UTC", 12)
     monkeypatch.setattr(config, "NY_SESSION_START_UTC", 12)
     monkeypatch.setattr(config, "NY_SESSION_END_UTC", 20)
+    monkeypatch.setattr(config, "AI_STRATEGY_SWEEP_WINDOW_MINUTES", 60)
+    monkeypatch.setattr(config, "AI_STRATEGY_SL_BUFFER", 0.30)
+    monkeypatch.setattr(config, "AI_STRATEGY_MIN_RR", 3.0)
+    monkeypatch.setattr(config, "AI_STRATEGY_FUNDEDNEXT_MAX_DAILY_LOSS_USED_PCT", 50.0)
 
 
 @pytest.fixture

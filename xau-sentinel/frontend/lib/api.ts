@@ -20,6 +20,7 @@ import type {
   Risk,
   Settings,
   Setup,
+  StrategyEvaluation,
   Structure,
   Timeframe,
   Trade,
@@ -99,4 +100,6 @@ export const api = {
   aiConfig: () => request<AiConfig>("/api/ai/config"),
   aiChat: (payload: ChatRequest) =>
     request<ChatResponse>("/api/ai/chat", { method: "POST", body: JSON.stringify(payload) }),
+
+  strategyAPlus: () => request<StrategyEvaluation>("/api/strategy/aplus"),
 };

@@ -2,6 +2,7 @@
 
 import { useMarket } from "@/lib/market-context";
 import { SetupPanel } from "@/components/setup/setup-panel";
+import { AplusPanel } from "@/components/strategy/a-plus-panel";
 import { RiskPanel } from "@/components/risk/risk-panel";
 import { AlertCenter } from "@/components/alerts/alert-center";
 import { Panel } from "@/components/layout/panel";
@@ -18,6 +19,7 @@ export default function SetupsPage() {
     <div className="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div className="lg:col-span-2 flex flex-col gap-4">
         <SetupPanel setup={snapshot?.setup ?? null} />
+        <AplusPanel />
 
         <Panel title="Multi-Timeframe Context">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
