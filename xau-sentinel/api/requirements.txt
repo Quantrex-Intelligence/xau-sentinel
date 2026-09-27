@@ -1,0 +1,7 @@
+# Kept separate from the frozen Stage 1 requirements.txt on purpose — this
+# API layer is a new, additive presentation-layer dependency, not part of
+# the validated trading engine.
+fastapi>=0.109
+uvicorn[standard]>=0.32
+websockets>=12.0
+httpx>=0.27

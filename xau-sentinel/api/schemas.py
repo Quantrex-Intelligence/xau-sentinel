@@ -1,0 +1,159 @@
+"""Pydantic response models. These mirror the existing engine dataclasses
+field-for-field (analysis/structure.py, analysis/setup.py, analysis/regime.py,
+analysis/liquidity.py) — they exist to give the API a typed, documented
+contract, not to add or reshape any information the engine doesn't already
+produce."""
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from pydantic import BaseModel, ConfigDict
+
+
+class CandleOut(BaseModel):
+    time: int  # unix seconds — Lightweight Charts' native time format
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class PriceInfoOut(BaseModel):
+    price: float
+    bid: float
+    ask: float
+    spread: float
+    time: int
+    source: str  # "mock" | "live"
+    stale: bool
+
+
+class ConnectionOut(BaseModel):
+    label: str
+    connected: bool
+    mode: str  # "mock" | "live"
+
+
+class StructureOut(BaseModel):
+    state: str
+    last_bos: Optional[str] = None
+    last_mss: Optional[str] = None
+    reason: str
+
+
+class RegimeOut(BaseModel):
+    regime: str
+    reason: str
+
+
+class LiquidityEventOut(BaseModel):
+    time: Optional[int] = None
+    label: str
+    level_name: str
+    level_price: float
+    kind: str
+
+
+class LiquidityOut(BaseModel):
+    sweeps: List[LiquidityEventOut]
+    equal_levels: List[LiquidityEventOut]
+
+
+class SetupOut(BaseModel):
+    state: str
+    direction: Optional[str] = None
+    # analysis.setup.detect_setup's NO-SETUP-without-H1-bias branch fills the
+    # checklist with the literal string "WAITING" for every step instead of
+    # False — a quirk of the frozen Stage 1 engine (ui/dashboard.py already
+    # treats "anything that isn't True" as WAITING), so this stays a union
+    # rather than "fixing" the engine's output shape.
+    checklist: Dict[str, Union[bool, str]]
+    entry_zone: Optional[Tuple[float, float]] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
+    rr: Optional[float] = None
+    reason: str
+
+
+class RiskOut(BaseModel):
+    balance: float
+    risk_per_trade_pct: float
+    today_r: float
+
+
+class MarketSnapshotOut(BaseModel):
+    """The single aggregate assembled by api/snapshot.py — used by both
+    GET /api/market/analysis and every WS /ws/market tick."""
+    connection: ConnectionOut
+    price: Optional[PriceInfoOut] = None
+    structure: Dict[str, StructureOut]  # keys: H4, H1, M15, M5
+    regime: Optional[RegimeOut] = None
+    zones: Dict[str, float]
+    liquidity: LiquidityOut
+    displacement: Optional[str] = None
+    setup: Optional[SetupOut] = None
+    risk: RiskOut
+    session: Optional[str] = None
+    latest_m5_candle: Optional[CandleOut] = None
+    data_error: Optional[str] = None
+
+
+class TradeCreateIn(BaseModel):
+    trade_date: str
+    trade_time: str
+    direction: str
+    entry: float
+    stop_loss: float
+    take_profit: Optional[float] = None
+    planned_rr: Optional[float] = None
+    setup: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TradeCloseIn(BaseModel):
+    exit_price: float
+    result: str  # "WIN" | "LOSS" | "BE"
+    pnl: Optional[float] = None
+    r_multiple: Optional[float] = None
+    duration_minutes: Optional[float] = None
+    exit_reason: Optional[str] = None
+    rule_followed: Optional[str] = None
+    mistake: Optional[str] = None
+    exit_notes: Optional[str] = None
+
+
+class TradeOut(BaseModel):
+    """Deliberately permissive (extra="allow"): trades.list_trades()/get_trade()
+    already return every DB column plus the joined journal_context columns —
+    duplicating that column list here would be exactly the kind of duplicate
+    business knowledge this migration is meant to avoid."""
+    model_config = ConfigDict(extra="allow")
+
+    id: int
+
+
+class AnalyticsOut(BaseModel):
+    total_trades: int
+    wins: int
+    losses: int
+    breakeven: int
+    win_rate: float
+    total_r: float
+    avg_r: float
+    profit_factor: Optional[float] = None
+
+
+class AlertOut(BaseModel):
+    id: int
+    alert_time: str
+    level: str
+    direction: Optional[str] = None
+    message: str
+    details: Optional[Any] = None
+
+
+class EventOut(BaseModel):
+    id: int
+    event_time: str
+    event_type: str
+    description: str
+    timeframe: Optional[str] = None
