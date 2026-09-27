@@ -154,6 +154,38 @@ def test_category_is_unknown_when_no_context_was_available(monkeypatch):
     assert result.category == AnswerCategory.UNKNOWN
 
 
+def test_knowledge_used_is_empty_list_when_knowledge_base_has_no_relevant_result(monkeypatch):
+    """Stage 5 regression: chat()'s existing behavior (answer, context_used,
+    sources, category) must be completely unaffected when retrieval finds
+    nothing — including when the knowledge tables don't exist at all yet
+    (this test's temp_db never initializes them), which is what every test
+    above this one in the file already exercises implicitly."""
+    _use_provider(monkeypatch, _RecordingProvider(reply="a helpful, safe answer"))
+    result = assistant.chat("Question")
+    assert result.knowledge_used == []
+    # Everything else about the response is exactly as it was pre-Stage-5.
+    assert result.answer == "a helpful, safe answer"
+    assert set(result.context_used) == {"Market Structure", "Setup", "FundedNext Risk"}
+
+
+def test_knowledge_used_is_populated_when_a_relevant_document_exists(monkeypatch, temp_db):
+    from ai.knowledge import store
+    store.init_table()
+    store.add_document(
+        "test/strategy.md", "strategy_rules", "1.0", "Test Strategy Doc",
+        "The reward to risk ratio must be at least three to one for an A+ rating.",
+    )
+    _use_provider(monkeypatch, _RecordingProvider())
+
+    result = assistant.chat("what reward to risk ratio does the strategy require?")
+
+    assert len(result.knowledge_used) > 0
+    assert result.knowledge_used[0].source == "test/strategy.md"
+    assert result.knowledge_used[0].category == "strategy_rules"
+    # Unaffected by the addition — same as the empty-KB case above.
+    assert set(result.context_used) == {"Market Structure", "Setup", "FundedNext Risk"}
+
+
 def test_secret_api_key_never_leaks_into_the_response(monkeypatch):
     secret = "sk-test-super-secret-value-should-never-leak"
     monkeypatch.setattr(config, "AI_API_KEY", secret)

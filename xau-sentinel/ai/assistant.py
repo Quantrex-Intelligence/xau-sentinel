@@ -16,6 +16,8 @@ from typing import List, Optional
 from journal.database import get_connection
 from ai import context as context_builder
 from ai import prompts
+from ai.knowledge import retrieval as knowledge_retrieval
+from ai.knowledge.schemas import KnowledgeSourceOut
 from ai.providers import get_provider
 from ai.schemas import AnswerCategory, ChatResponseOut, ContextSourceOut
 
@@ -73,7 +75,13 @@ def chat(message: str, conversation_id: Optional[str] = None,
     provider = get_provider()
 
     assembled = context_builder.build_context(context_scope, trade_id)
-    system_prompt = prompts.build_system_prompt(assembled)
+    # Independent of context_scope/trade_id: the user's raw message is the
+    # retrieval query (semantic similarity over it *is* the intent signal —
+    # no separate intent-classification step, per the Stage 5 design). Never
+    # touches live market/account/journal data — only the seeded reference
+    # documents (see ai/knowledge/).
+    knowledge_chunks = knowledge_retrieval.retrieve(message)
+    system_prompt = prompts.build_system_prompt(assembled, knowledge_chunks)
     history = _load_history(conversation_id)
     messages = prompts.build_messages(history, message)
 
@@ -101,6 +109,14 @@ def chat(message: str, conversation_id: Optional[str] = None,
         for s in assembled.sections
     ]
 
+    knowledge_used = [
+        KnowledgeSourceOut(
+            source=c.source, category=c.category, version=c.version, title=c.title,
+            similarity=c.similarity, excerpt=(c.text[:200] + "…") if len(c.text) > 200 else c.text,
+        )
+        for c in knowledge_chunks
+    ]
+
     return ChatResponseOut(
         answer=answer_text,
         conversation_id=conversation_id,
@@ -110,4 +126,5 @@ def chat(message: str, conversation_id: Optional[str] = None,
         provider=response.provider,
         model=response.model,
         created_at=datetime.now(timezone.utc).isoformat(),
+        knowledge_used=knowledge_used,
     )

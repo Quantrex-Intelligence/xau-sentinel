@@ -139,3 +139,52 @@ def test_api_key_never_appears_in_any_ai_response_body(api_client, monkeypatch):
 
     assert secret not in config_resp.text
     assert secret not in chat_resp.text
+
+
+# ---------------------------------------------------------------------------
+# Stage 5: knowledge/RAG integration
+# ---------------------------------------------------------------------------
+
+def test_knowledge_documents_endpoint_lists_the_seeded_corpus(api_client):
+    """api_client's TestClient triggers the real app lifespan, which seeds
+    the knowledge base the same way the running app does — proving the
+    seed step is actually wired into startup, not just unit-tested."""
+    resp = api_client.get("/api/ai/knowledge/documents")
+    assert resp.status_code == 200
+    docs = resp.json()
+    assert len(docs) > 0
+    categories = {d["category"] for d in docs}
+    assert "strategy_rules" in categories
+    assert "fundednext_rules" in categories
+
+
+def test_chat_response_includes_knowledge_used_field(api_client):
+    resp = api_client.post("/api/ai/chat", json={
+        "message": "what reward to risk ratio does the A+ strategy require?",
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "knowledge_used" in body
+    assert len(body["knowledge_used"]) > 0
+    assert body["knowledge_used"][0]["source"]
+    assert body["knowledge_used"][0]["category"]
+
+
+def test_chat_response_knowledge_used_is_empty_for_an_off_topic_message(api_client):
+    resp = api_client.post("/api/ai/chat", json={"message": "what is the capital of France?"})
+    assert resp.status_code == 200
+    assert resp.json()["knowledge_used"] == []
+
+
+def test_add_user_note_endpoint_persists_and_is_listed(api_client):
+    resp = api_client.post("/api/ai/knowledge/notes", json={
+        "title": "My personal playbook note",
+        "content": "I always wait for London session liquidity before entering.",
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["category"] == "user_notes"
+    assert body["is_active"] is True
+
+    docs = api_client.get("/api/ai/knowledge/documents").json()
+    assert any(d["title"] == "My personal playbook note" for d in docs)

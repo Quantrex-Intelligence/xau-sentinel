@@ -6,6 +6,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
+from ai.knowledge.schemas import KnowledgeSourceOut
+
 
 class AnswerCategory(str, Enum):
     """How a piece of information relates to ground truth (Stage 3 spec
@@ -47,6 +49,10 @@ class ChatResponseOut(BaseModel):
     provider: Optional[str] = None
     model: Optional[str] = None
     created_at: str
+    # Stage 5: reference knowledge retrieved for this turn, alongside (never
+    # replacing) the deterministic sources above. Empty when nothing cleared
+    # the relevance threshold — never a fabricated or forced match.
+    knowledge_used: List[KnowledgeSourceOut] = []
 
 
 class AiConfigOut(BaseModel):

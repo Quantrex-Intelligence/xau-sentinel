@@ -14,6 +14,7 @@ import type {
   FundedNextRuleSet,
   FundedNextSettings,
   FundedNextStatus,
+  KnowledgeDocument,
   Liquidity,
   MarketSnapshot,
   Regime,
@@ -100,6 +101,7 @@ export const api = {
   aiConfig: () => request<AiConfig>("/api/ai/config"),
   aiChat: (payload: ChatRequest) =>
     request<ChatResponse>("/api/ai/chat", { method: "POST", body: JSON.stringify(payload) }),
+  knowledgeDocuments: () => request<KnowledgeDocument[]>("/api/ai/knowledge/documents"),
 
   strategyAPlus: () => request<StrategyEvaluation>("/api/strategy/aplus"),
 };

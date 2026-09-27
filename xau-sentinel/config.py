@@ -87,5 +87,17 @@ AI_STRATEGY_FUNDEDNEXT_MAX_DAILY_LOSS_USED_PCT = float(
     os.getenv("AI_STRATEGY_FUNDEDNEXT_MAX_DAILY_LOSS_USED_PCT", 50.0)
 )
 
+
+# --- Stage 5: Strategy & Trading Knowledge RAG ---
+# Local, dependency-free retrieval over the project's own documented rules
+# (see ai/knowledge/). AI_EMBEDDING_PROVIDER is the swap point for a real
+# dense-model backend later (Voyage/OpenAI/local sentence-transformers) —
+# "local" never calls out, needs no key, and is fully deterministic.
+AI_EMBEDDING_PROVIDER = os.getenv("AI_EMBEDDING_PROVIDER", "local").strip().lower()
+AI_KNOWLEDGE_MIN_SIMILARITY = float(os.getenv("AI_KNOWLEDGE_MIN_SIMILARITY", 0.18))
+AI_KNOWLEDGE_TOP_K = int(os.getenv("AI_KNOWLEDGE_TOP_K", 3))
+AI_KNOWLEDGE_CHUNK_SIZE = int(os.getenv("AI_KNOWLEDGE_CHUNK_SIZE", 800))
+AI_KNOWLEDGE_CHUNK_OVERLAP = int(os.getenv("AI_KNOWLEDGE_CHUNK_OVERLAP", 100))
+
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"

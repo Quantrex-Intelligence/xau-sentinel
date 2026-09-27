@@ -322,6 +322,28 @@ export interface ChatRequest {
   trade_id?: number;
 }
 
+/** Mirrors ai/knowledge/schemas.py's KnowledgeSourceOut (Stage 5) — a
+ * retrieved reference document chunk, distinct from ContextSource above:
+ * this is background documentation, never a live fact. */
+export interface KnowledgeSource {
+  source: string;
+  category: string;
+  version: string;
+  title: string;
+  similarity: number;
+  excerpt: string;
+}
+
+export interface KnowledgeDocument {
+  id: number;
+  source: string;
+  category: string;
+  version: string;
+  title: string;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface ChatResponse {
   answer: string;
   conversation_id: string;
@@ -331,6 +353,9 @@ export interface ChatResponse {
   provider: string | null;
   model: string | null;
   created_at: string;
+  /** Reference knowledge retrieved for this turn, alongside (never
+   * replacing) `sources` above. Empty when nothing was relevant enough. */
+  knowledge_used: KnowledgeSource[];
 }
 
 export interface AiConfig {

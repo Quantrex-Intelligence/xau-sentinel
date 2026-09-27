@@ -12,6 +12,7 @@ const response: ChatResponse = {
   provider: "mock",
   model: "mock-deterministic-v1",
   created_at: "2026-01-01T00:00:00Z",
+  knowledge_used: [],
 };
 
 describe("ChatMessage", () => {
@@ -27,6 +28,19 @@ describe("ChatMessage", () => {
     render(<ChatMessage turn={turn} />);
     expect(screen.getByText("H1 structure is bullish.")).toBeInTheDocument();
     expect(screen.getByText(/Context used/)).toBeInTheDocument();
+  });
+
+  it("renders knowledge sources alongside the context indicator when present", () => {
+    const withKnowledge: ChatResponse = {
+      ...response,
+      knowledge_used: [{
+        source: "ai/strategy/rules.py", category: "strategy_rules", version: "1.0",
+        title: "Locked A+ Strategy Rules", similarity: 0.4, excerpt: "excerpt text",
+      }],
+    };
+    const turn: ChatTurn = { role: "assistant", content: withKnowledge.answer, response: withKnowledge };
+    render(<ChatMessage turn={turn} />);
+    expect(screen.getByText("Locked A+ Strategy Rules")).toBeInTheDocument();
   });
 
   it("renders a client-side error turn distinctly, never as a normal answer", () => {
