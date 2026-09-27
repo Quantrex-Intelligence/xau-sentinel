@@ -10,6 +10,7 @@ import {
   BookText,
   BarChart3,
   ShieldAlert,
+  Sparkles,
   Settings,
 } from "lucide-react";
 
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { href: "/fundednext", label: "FundedNext", icon: ShieldAlert },
   { href: "/journal", label: "Journal", icon: BookText },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/assistant", label: "AI Assistant", icon: Sparkles },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

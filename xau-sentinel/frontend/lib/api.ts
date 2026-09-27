@@ -4,9 +4,12 @@
  * 1:1 call into the Python engine. See lib/types.ts for the response shapes.
  */
 import type {
+  AiConfig,
   AlertItem,
   Analytics,
   Candle,
+  ChatRequest,
+  ChatResponse,
   EventItem,
   FundedNextRuleSet,
   FundedNextSettings,
@@ -92,4 +95,8 @@ export const api = {
   fundedNextSettings: () => request<FundedNextSettings>("/api/fundednext/settings"),
   updateFundedNextSettings: (payload: Partial<FundedNextSettings>) =>
     request<FundedNextSettings>("/api/fundednext/settings", { method: "PUT", body: JSON.stringify(payload) }),
+
+  aiConfig: () => request<AiConfig>("/api/ai/config"),
+  aiChat: (payload: ChatRequest) =>
+    request<ChatResponse>("/api/ai/chat", { method: "POST", body: JSON.stringify(payload) }),
 };

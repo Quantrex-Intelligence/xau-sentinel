@@ -119,12 +119,47 @@ over closed trades in the current filter (session / setup / direction /
 regime), and the UI always shows the sample size — with a warning under 10
 trades — rather than drawing conclusions from a handful of results.
 
+## AI Assistant (Stage 3)
+
+A read-only analyst and explainer layer over the deterministic engine above
+— available on the Next.js/FastAPI UI (`api/` + `frontend/`) at
+`/assistant`, or directly via `POST /api/ai/chat`. It answers questions like
+"What is the current market structure?", "How much FundedNext daily loss do
+I have remaining?", or "Explain trade #12 using its captured entry context"
+— but it **never places, modifies, or recommends executing a trade**; a
+deterministic filter (`ai/prompts.py::contains_actionable_directive`) also
+catches and replaces any directive-style answer (e.g. "BUY NOW") before it
+reaches the user, as a second layer behind the system prompt.
+
+The LLM is never a source of truth: `ai/context.py` builds a plain-text
+context block from the same engine calls the rest of the app already uses
+(`api/snapshot.py` for market/setup, `risk/fundednext.py` for account risk,
+`journal/trades.py` for journal history), and every answer's "Context used"
+panel — and each source's FACT/CALCULATION/INTERPRETATION/UNKNOWN category —
+comes from that object directly, never parsed back out of the model's prose.
+A missing/unavailable source is always labeled as such, never fabricated.
+Journal history is only included when explicitly requested (via
+`context_scope`), to avoid sending more than a question needs.
+
+**Provider**: set in `.env` — `AI_PROVIDER=anthropic` (needs `AI_API_KEY`
+and `AI_MODEL`) or `AI_PROVIDER=mock` (offline, deterministic, no key; used
+by the test suite and for local development). An unconfigured provider
+surfaces as a clear message in the UI (`GET /api/ai/config`), never a crash.
+See `ai/providers/` for the provider abstraction — adding another backend
+means adding one file there, nothing else changes.
+
+Conversation history persists per `conversation_id` in its own `ai_messages`
+SQLite table (added via its own migration, same pattern as
+`risk/fundednext_journal.py` — the frozen Stage 1 schema is never touched).
+
 ## Database
 
-SQLite at `data/xau_sentinel.db` (auto-created on first run), with four
-tables: `trades`, `journal_context`, `market_events`, `alerts`. No raw market
-data is stored — only journal entries and the discrete events/alerts the
-analysis engine produces.
+SQLite at `data/xau_sentinel.db` (auto-created on first run), with tables
+for `trades`, `journal_context`, `market_events`, `alerts`,
+`fundednext_context` (an immutable per-trade FundedNext snapshot), and
+`ai_messages` (AI conversation history). No raw market data is stored —
+only journal entries and the discrete events/alerts/messages these layers
+produce.
 
 ## Safety
 
@@ -138,8 +173,24 @@ analysis engine produces.
   Linux/macOS) all degrade to a visible `🔴 MT5 DISCONNECTED` state rather
   than crashing the app.
 
+## Safety (AI Assistant)
+
+- The AI Assistant is read-only in the same sense as the rest of the app:
+  it cannot place, close, or modify an order, and never claims to.
+- Never hardcoded credentials — `AI_API_KEY` comes from the environment and
+  is never returned by any API response (`GET /api/ai/config` reports
+  `configured: true/false`, never the key itself).
+- A missing provider/key degrades to a clear, visible configuration message
+  (both API and UI), never a crash.
+- Context sent to the LLM traces to existing engine calls only — nothing is
+  invented for the assistant's benefit, and journal history is opt-in per
+  request to avoid over-sharing.
+
 ## Status
 
-All five phases are implemented: MT5 connection + live dashboard, market
-structure/zones/liquidity/regime, the setup detector with alerts, the
-journal with automatic context capture, and journal analytics.
+All five original phases are implemented: MT5 connection + live dashboard,
+market structure/zones/liquidity/regime, the setup detector with alerts,
+the journal with automatic context capture, and journal analytics. Stage 2
+(FundedNext risk monitor) and Stage 3 (AI Assistant) are also implemented,
+on top of a FastAPI (`api/`) + Next.js (`frontend/`) layer that now sits
+alongside the original Streamlit UI (`app.py`, `ui/`) during the migration.

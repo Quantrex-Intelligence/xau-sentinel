@@ -296,3 +296,46 @@ export interface EventItem {
   description: string;
   timeframe: string | null;
 }
+
+/** Mirrors ai/schemas.py's AnswerCategory — how a statement relates to
+ * ground truth. FACT/CALCULATION trace to a deterministic engine;
+ * INTERPRETATION is the LLM's own reading; UNKNOWN means the data needed
+ * to answer isn't available. */
+export type AnswerCategory = "FACT" | "CALCULATION" | "INTERPRETATION" | "UNKNOWN";
+
+/** One traceable input an AI answer was built from — the "Context used"
+ * transparency panel renders this list directly. */
+export interface ContextSource {
+  label: string;
+  category: AnswerCategory;
+  available: boolean;
+  detail: string | null;
+}
+
+export interface ChatRequest {
+  message: string;
+  conversation_id?: string;
+  /** Subset of "market" | "risk" | "journal". Omit for the server's default. */
+  context_scope?: string[];
+  /** When set, replaces context_scope entirely — explain THIS trade using
+   * only what was captured at entry. */
+  trade_id?: number;
+}
+
+export interface ChatResponse {
+  answer: string;
+  conversation_id: string;
+  context_used: string[];
+  sources: ContextSource[];
+  category: AnswerCategory;
+  provider: string | null;
+  model: string | null;
+  created_at: string;
+}
+
+export interface AiConfig {
+  configured: boolean;
+  provider: string;
+  model: string | null;
+  reason: string | null;
+}

@@ -66,4 +66,51 @@ describe("api client", () => {
     expect(calledUrl).toContain("timeframe=H1");
     expect(calledUrl).toContain("count=100");
   });
+
+  it("posts chat messages to /api/ai/chat with a JSON body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        answer: "hi", conversation_id: "c1", context_used: [], sources: [],
+        category: "INTERPRETATION", provider: "mock", model: "mock-deterministic-v1",
+        created_at: "2026-01-01T00:00:00Z",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await api.aiChat({ message: "hello", conversation_id: "c1" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/api/ai/chat");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual({ message: "hello", conversation_id: "c1" });
+    expect(result.answer).toBe("hi");
+  });
+
+  it("surfaces a 503 configuration error from /api/ai/chat as an ApiError", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable",
+        json: async () => ({ detail: "AI assistant not configured: AI_API_KEY is not set." }),
+      })
+    );
+    await expect(api.aiChat({ message: "hello" })).rejects.toMatchObject(
+      new ApiError(503, "AI assistant not configured: AI_API_KEY is not set.")
+    );
+  });
+
+  it("fetches AI configuration status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ configured: false, provider: "anthropic", model: null, reason: "AI_API_KEY is not set." }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await api.aiConfig();
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/ai/config");
+    expect(result.configured).toBe(false);
+  });
 });

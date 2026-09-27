@@ -65,5 +65,13 @@ FUNDEDNEXT_SERVER_TIMEZONE = os.getenv("FUNDEDNEXT_SERVER_TIMEZONE", "Europe/Nic
 FUNDEDNEXT_WARNING_THRESHOLD_PCT = float(os.getenv("FUNDEDNEXT_WARNING_THRESHOLD_PCT", 0.5))
 FUNDEDNEXT_CRITICAL_THRESHOLD_PCT = float(os.getenv("FUNDEDNEXT_CRITICAL_THRESHOLD_PCT", 0.8))
 
+
+# --- AI Assistant (Stage 3) — analyst/explainer over the engine's own
+# output, never a trading voice. See ai/README or ai/assistant.py. ---
+AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic").strip().lower()  # "anthropic" | "mock"
+AI_API_KEY = os.getenv("AI_API_KEY", "").strip()
+AI_MODEL = os.getenv("AI_MODEL", "claude-haiku-4-5-20251001").strip()
+AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", 1024))
+
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"

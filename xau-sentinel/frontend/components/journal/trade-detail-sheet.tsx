@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Sparkles } from "lucide-react";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter,
 } from "@/components/ui/sheet";
@@ -171,7 +173,15 @@ export function TradeDetailSheet({
                 </div>
               )}
             </div>
-            <SheetFooter />
+            <SheetFooter>
+              <Link
+                href={`/assistant?trade=${trade.id}`}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded px-3 py-1.5 w-fit"
+              >
+                <Sparkles className="size-3.5" />
+                Explain with AI
+              </Link>
+            </SheetFooter>
           </>
         )}
       </SheetContent>

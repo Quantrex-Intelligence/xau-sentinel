@@ -5,3 +5,8 @@ fastapi>=0.109
 uvicorn[standard]>=0.32
 websockets>=12.0
 httpx>=0.27
+
+# Stage 3 AI Assistant's default provider. Import is guarded in
+# ai/providers/anthropic_provider.py — the app still runs (with AI_PROVIDER
+# unset or set to "mock") if this isn't installed.
+anthropic>=0.40
