@@ -85,6 +85,22 @@ def get_all_candles(count: int = 300) -> dict:
     return {tf: get_candles(tf, count) for tf in TIMEFRAMES}
 
 
+def is_stale(price_info: dict, now: datetime = None) -> bool:
+    """True if the last known tick is older than config.DATA_STALE_SECONDS.
+    Mock mode is exempt: its candle timestamps are bar-aligned (floored to
+    the timeframe boundary), so they can legitimately sit a few minutes
+    behind "now" with no real feed having stopped — there's nothing to go
+    stale. This only ever fires for a live feed that has actually stopped
+    updating."""
+    if config.IS_MOCK:
+        return False
+    if not price_info or price_info.get("time") is None:
+        return False
+    now = now or datetime.now(timezone.utc)
+    age = (now - price_info["time"]).total_seconds()
+    return age > config.DATA_STALE_SECONDS
+
+
 # ---------------------------------------------------------------------------
 # Mock data — deterministic per timeframe so the UI doesn't jitter randomly
 # between reruns, but still varies enough to look like a real market.

@@ -12,7 +12,7 @@ from mt5 import connection, market_data
 from analysis.structure import analyze_structure, detect_displacement
 from analysis.regime import classify_regime
 from analysis.zones import compute_zones, current_session
-from analysis.liquidity import detect_sweeps
+from analysis.liquidity import detect_sweeps, detect_equal_levels
 from analysis.setup import detect_setup
 from journal.database import init_db
 from journal import trades as trades_repo
@@ -39,9 +39,11 @@ def _load_market_data():
         return None, None, str(exc)
 
 
-def _log_new_events(setup_result, sweeps, m5_struct, displacement):
+def _log_new_events(setup_result, sweeps, equal_levels, m5_struct, displacement):
     """Writes newly-seen liquidity/MSS/displacement events to the DB, deduped
-    within this browser session so a stable rerun doesn't spam the feed."""
+    within this browser session so a stable rerun doesn't spam the feed (and,
+    per BUG-2 in the Stage 1 report, deduped again at the DB level in
+    log_event so a fresh session can't re-log the same historical event)."""
     seen = st.session_state.setdefault("seen_event_keys", set())
 
     for sweep in sweeps:
@@ -49,6 +51,13 @@ def _log_new_events(setup_result, sweeps, m5_struct, displacement):
         if key not in seen:
             seen.add(key)
             trades_repo.log_event("liquidity", sweep.label, "M5", sweep.time.to_pydatetime())
+
+    for equal in equal_levels:
+        key = ("equal_level", equal.label, equal.level_price, equal.time.isoformat())
+        if key not in seen:
+            seen.add(key)
+            trades_repo.log_event("liquidity", f"{equal.label} ({equal.level_price:.2f})", "M5",
+                                   equal.time.to_pydatetime())
 
     if m5_struct.last_mss and m5_struct.last_mss != st.session_state.get("last_m5_mss"):
         trades_repo.log_event("mss", f"{m5_struct.last_mss.title()} MSS confirmed", "M5")
@@ -101,7 +110,8 @@ with st.sidebar:
     st.caption(f"Symbol: {config.TRADING_SYMBOL}")
 
 candles, price_info, data_error = _load_market_data()
-dashboard.render_header(price_info, conn_label, conn_ok)
+is_stale = market_data.is_stale(price_info) if price_info else False
+dashboard.render_header(price_info, conn_label, conn_ok, is_stale)
 
 context_snapshot = {}
 
@@ -112,10 +122,11 @@ else:
     regime = classify_regime(candles["H1"], candles["M15"])
     zones = compute_zones(candles["M5"], candles["H1"], candles["H4"])
     sweeps = detect_sweeps(candles["M5"], zones)
+    equal_levels = detect_equal_levels(candles["M5"])
     displacement = detect_displacement(candles["M5"])
     setup_result = detect_setup(candles)
 
-    _log_new_events(setup_result, sweeps, structures["M5"], displacement)
+    _log_new_events(setup_result, sweeps, equal_levels, structures["M5"], displacement)
     _log_setup_transition(setup_result)
 
     now_utc = datetime.now(timezone.utc)
@@ -127,6 +138,7 @@ else:
         "regime": regime.regime,
         "session": current_session(now_utc),
         "liquidity": sweeps[-1].label if sweeps else None,
+        "equal_levels": equal_levels[-1].label if equal_levels else None,
         "mss": (structures["M5"].last_mss or "").title() or None,
         "displacement": (displacement or "").title() or None,
     }
@@ -145,7 +157,7 @@ else:
         with col_zones:
             dashboard.render_zones_panel(zones)
         with col_risk:
-            dashboard.render_risk_panel()
+            dashboard.render_risk_panel(trades_repo.today_r_total())
         with col_events:
             dashboard.render_events_panel(trades_repo.recent_events(), trades_repo.recent_alerts())
 

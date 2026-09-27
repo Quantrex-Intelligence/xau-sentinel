@@ -52,5 +52,9 @@ NY_SESSION_END_UTC = int(os.getenv("NY_SESSION_END_UTC", 20))
 ACCOUNT_BALANCE = float(os.getenv("ACCOUNT_BALANCE", 50000))
 RISK_PER_TRADE_PCT = float(os.getenv("RISK_PER_TRADE_PCT", 0.3))
 
+# --- Data staleness (seconds since the last tick before the UI warns rather
+# than silently keep showing an old price as if it were current) ---
+DATA_STALE_SECONDS = int(os.getenv("DATA_STALE_SECONDS", 120))
+
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"

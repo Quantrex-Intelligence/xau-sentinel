@@ -36,6 +36,7 @@ def render_context_summary(context_snapshot: dict):
     cols2[1].metric("Session", context_snapshot.get("session", "—"))
     cols2[2].metric("Displacement", context_snapshot.get("displacement") or "None")
     st.caption(f"Liquidity: {context_snapshot.get('liquidity') or 'None detected'}")
+    st.caption(f"Equal Levels: {context_snapshot.get('equal_levels') or 'None detected'}")
     st.caption(f"MSS: {context_snapshot.get('mss') or 'None'}")
 
 

@@ -7,4 +7,7 @@ venv/
 data/*.db
 data/screenshots/
 
+.pytest_cache/
+.pytest_tmp/
+
 .DS_Store

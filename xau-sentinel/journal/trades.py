@@ -121,8 +121,18 @@ def compute_analytics(df: pd.DataFrame) -> dict:
 
 def log_event(event_type: str, description: str, timeframe: str = "",
               event_time: Optional[datetime] = None) -> None:
+    """Dedupes against the database (not just the caller's in-memory session
+    state) so the same discrete event — e.g. a liquidity sweep on a specific
+    candle — isn't re-logged every time a new browser session starts."""
     event_time = event_time or datetime.now(timezone.utc)
     with get_connection() as conn:
+        existing = conn.execute(
+            """SELECT 1 FROM market_events
+               WHERE event_time = ? AND event_type = ? AND description = ? LIMIT 1""",
+            (event_time.isoformat(), event_type, description),
+        ).fetchone()
+        if existing:
+            return
         conn.execute(
             "INSERT INTO market_events (event_time, event_type, description, timeframe) VALUES (?, ?, ?, ?)",
             (event_time.isoformat(), event_type, description, timeframe),
@@ -146,6 +156,19 @@ def recent_events(limit: int = 10) -> pd.DataFrame:
         return pd.read_sql_query(
             "SELECT * FROM market_events ORDER BY event_time DESC LIMIT ?", conn, params=(limit,)
         )
+
+
+def today_r_total(today: Optional[str] = None) -> float:
+    """Sums r_multiple across closed trades for the given date (default:
+    today, UTC) — powers the Risk panel's "Today P/L" figure."""
+    day = today or datetime.now(timezone.utc).date().isoformat()
+    with get_connection() as conn:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(r_multiple), 0) AS total FROM trades
+               WHERE status = 'CLOSED' AND trade_date = ?""",
+            (day,),
+        ).fetchone()
+        return round(float(row["total"]), 2)
 
 
 def recent_alerts(limit: int = 10) -> pd.DataFrame:

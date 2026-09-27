@@ -45,7 +45,7 @@ def inject_css():
     )
 
 
-def render_header(price_info: dict, conn_label: str, conn_ok: bool):
+def render_header(price_info: dict, conn_label: str, conn_ok: bool, is_stale: bool = False):
     mode_label = "🟡 MOCK DATA" if config.IS_MOCK else "🟢 LIVE MT5"
     col1, col2, col3, col4 = st.columns([3, 1.4, 1.6, 1.6])
     with col1:
@@ -58,6 +58,12 @@ def render_header(price_info: dict, conn_label: str, conn_ok: bool):
     with col4:
         if price_info:
             st.markdown(f"**{config.TRADING_SYMBOL} {price_info['price']:.2f}**")
+
+    if is_stale:
+        st.warning(
+            f"🟠 **DATA STALE** — last update {price_info['time'].strftime('%H:%M:%S UTC')}. "
+            "The price shown below is no longer current."
+        )
 
     if price_info:
         b1, b2, b3, b4 = st.columns(4)

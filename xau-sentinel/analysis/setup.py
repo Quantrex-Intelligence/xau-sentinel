@@ -15,7 +15,7 @@ import pandas as pd
 
 import config
 from analysis.structure import analyze_structure, detect_displacement
-from analysis.liquidity import detect_sweeps
+from analysis.liquidity import detect_sweeps, detect_equal_levels
 from analysis.zones import compute_zones
 
 CHECKLIST_STEPS = ["Liquidity Sweep", "MSS", "Displacement", "Retracement"]
@@ -53,6 +53,7 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
 
     last_price = float(candles["M5"]["close"].iloc[-1])
     sweeps = detect_sweeps(candles["M5"], zones)
+    equal_levels = detect_equal_levels(candles["M5"])
     displacement = detect_displacement(candles["M5"])
 
     context = {
@@ -62,6 +63,10 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
         "m5_bias": m5.state,
         "zones": zones,
         "sweeps": [s.label for s in sweeps[-3:]],
+        # Equal highs/lows are exposed as deterministic liquidity information
+        # (per the liquidity module's own scope) but are NOT wired into the
+        # checklist below — the setup strategy is unchanged by this.
+        "equal_levels": [e.label for e in equal_levels[-3:]],
         "displacement": displacement,
     }
 
@@ -83,8 +88,13 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
         None,
     )
 
-    m5_mss_ok = (direction == "BUY" and (m5.last_mss == "bullish" or m5.state == "BULLISH")) or \
-                (direction == "SELL" and (m5.last_mss == "bearish" or m5.state == "BEARISH"))
+    # An actual detected structure shift, not merely an established trend:
+    # analyze_structure only ever sets last_mss alongside state == "PULLBACK",
+    # so checking last_mss directly is the precise "did a shift just happen"
+    # signal — checking m5.state == "BULLISH"/"BEARISH" here would just mean
+    # "M5 already agrees with the trend," which is a different, weaker claim.
+    m5_mss_ok = (direction == "BUY" and m5.last_mss == "bullish") or \
+                (direction == "SELL" and m5.last_mss == "bearish")
 
     displacement_ok = (direction == "BUY" and displacement == "bullish") or \
                        (direction == "SELL" and displacement == "bearish")
@@ -96,8 +106,13 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
         "Retracement": False,
     }
 
-    # Invalidation: an MSS was already seen in our favor, but M5 has since broken firmly the other way.
-    if checklist["MSS"] and (
+    # Invalidation: the liquidity sweep already fired (something to invalidate), but
+    # M5 has since broken firmly the other way. Gated on the sweep rather than
+    # checklist["MSS"]: analyze_structure only ever pairs last_mss with state ==
+    # "PULLBACK", never with the opposite hard state, so an MSS-gated check here
+    # could never fire — m5.state can't simultaneously be BULLISH/BEARISH-opposite
+    # and satisfy m5_mss_ok in the same direction. See tests/test_setup.py.
+    if checklist["Liquidity Sweep"] and (
         (direction == "BUY" and m5.state == "BEARISH") or (direction == "SELL" and m5.state == "BULLISH")
     ):
         return SetupResult(state="INVALIDATED", direction=direction, checklist=checklist,
@@ -115,10 +130,14 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
         checklist["Retracement"] = retracement_ok
         if retracement_ok:
             entry_zone, sl, tp, rr = _plan_trade(candles["M5"], direction)
-            return SetupResult(state="VALID", direction=direction, checklist=checklist,
-                                entry_zone=entry_zone, stop_loss=sl, take_profit=tp, rr=rr,
-                                reason=f"{direction} setup fully confirmed: sweep + MSS + displacement + retracement.",
-                                context=context)
+            if rr is not None:
+                return SetupResult(state="VALID", direction=direction, checklist=checklist,
+                                    entry_zone=entry_zone, stop_loss=sl, take_profit=tp, rr=rr,
+                                    reason=f"{direction} setup fully confirmed: sweep + MSS + displacement + retracement.",
+                                    context=context)
+            # Degenerate stop distance (current close sits exactly on the planning
+            # window's extreme) — nothing tradeable yet, keep waiting rather than
+            # surface a VALID setup with a zero-risk stop loss.
         return SetupResult(state="DEVELOPING", direction=direction, checklist=checklist,
                             reason="Sweep, MSS and displacement confirmed. Waiting for retracement.",
                             context=context)
