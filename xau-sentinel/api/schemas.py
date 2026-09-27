@@ -33,11 +33,19 @@ class ConnectionOut(BaseModel):
     mode: str  # "mock" | "live"
 
 
+class SwingPointOut(BaseModel):
+    time: int
+    price: float
+    kind: str  # "high" | "low"
+    label: Optional[str] = None  # "HH" | "HL" | "LH" | "LL"
+
+
 class StructureOut(BaseModel):
     state: str
     last_bos: Optional[str] = None
     last_mss: Optional[str] = None
     reason: str
+    swings: List[SwingPointOut] = []
 
 
 class RegimeOut(BaseModel):
@@ -149,6 +157,22 @@ class AlertOut(BaseModel):
     direction: Optional[str] = None
     message: str
     details: Optional[Any] = None
+
+
+class SettingsOut(BaseModel):
+    mode: str
+    trading_symbol: str
+    session_timezone: str
+    account_balance: float
+    risk_per_trade_pct: float
+    data_stale_seconds: int
+    swing_lookback: int
+    displacement_atr_mult: float
+    liquidity_sweep_buffer_pips: float
+    equal_level_tolerance: float
+    atr_period: int
+    retracement_min_pct: float
+    retracement_max_pct: float
 
 
 class EventOut(BaseModel):

@@ -181,6 +181,17 @@ def test_journal_filters_are_applied(api_client):
     assert trades[0]["direction"] == "BUY"
 
 
+def test_settings_endpoint_exposes_no_secrets(api_client):
+    resp = api_client.get("/api/settings")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mode"] == "mock"
+    assert body["trading_symbol"] == config.TRADING_SYMBOL
+    serialized = str(body).lower()
+    for secret_field in ("login", "password", "server", "db_path"):
+        assert secret_field not in serialized
+
+
 def test_websocket_market_stream_sends_valid_snapshot(api_client):
     with api_client.websocket_connect("/ws/market") as ws:
         data = ws.receive_json()

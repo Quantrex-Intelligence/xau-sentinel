@@ -23,7 +23,7 @@ from journal import trades as trades_repo
 
 from api.schemas import (
     CandleOut, ConnectionOut, LiquidityEventOut, LiquidityOut, MarketSnapshotOut,
-    PriceInfoOut, RegimeOut, RiskOut, SetupOut, StructureOut,
+    PriceInfoOut, RegimeOut, RiskOut, SetupOut, StructureOut, SwingPointOut,
 )
 
 
@@ -47,8 +47,11 @@ def candles_to_out(df: pd.DataFrame) -> list:
 
 
 def _structure_out(result) -> StructureOut:
-    return StructureOut(state=result.state, last_bos=result.last_bos,
-                         last_mss=result.last_mss, reason=result.reason)
+    return StructureOut(
+        state=result.state, last_bos=result.last_bos, last_mss=result.last_mss, reason=result.reason,
+        swings=[SwingPointOut(time=_epoch(p.time), price=p.price, kind=p.kind, label=p.label)
+                for p in result.swings if p.label is not None],
+    )
 
 
 def _liquidity_event_out(event) -> LiquidityEventOut:
