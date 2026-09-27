@@ -137,6 +137,7 @@ class TradeOut(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: int
+    fundednext_context: Optional["FundedNextTradeSnapshotOut"] = None
 
 
 class AnalyticsOut(BaseModel):
@@ -210,6 +211,27 @@ class FundedNextRuleSetOut(BaseModel):
     min_trading_days: int
     consistency_pct: Optional[float] = None
     drawdown_type: str
+
+
+class FundedNextTradeSnapshotOut(BaseModel):
+    """A FundedNext account snapshot captured once, at trade-creation time —
+    never recomputed. See risk/fundednext_journal.py."""
+    data_available: bool
+    account_type: Optional[str] = None
+    phase: Optional[str] = None
+    mode: Optional[str] = None
+    balance: Optional[float] = None
+    equity: Optional[float] = None
+    today_pnl: Optional[float] = None
+    daily_loss_remaining: Optional[float] = None
+    daily_loss_used_pct: Optional[float] = None
+    max_drawdown_remaining: Optional[float] = None
+    max_drawdown_used_pct: Optional[float] = None
+    daily_loss_pct_rule: Optional[float] = None
+    max_loss_pct_rule: Optional[float] = None
+    safety_level: Optional[str] = None
+    reason: Optional[str] = None
+    captured_at: Optional[str] = None
 
 
 class FundedNextSettingsOut(BaseModel):

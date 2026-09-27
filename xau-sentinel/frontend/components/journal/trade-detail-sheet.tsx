@@ -1,32 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter,
 } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { FundedNextContextCard } from "./fundednext-context-card";
 import { cn } from "@/lib/utils";
 import { formatPrice } from "@/lib/format";
 import { api, ApiError } from "@/lib/api";
 import type { Trade } from "@/lib/types";
 
 export function TradeDetailSheet({
-  trade,
+  tradeId,
   onOpenChange,
   onClosed,
 }: {
-  trade: Trade | null;
+  tradeId: number | null;
   onOpenChange: (open: boolean) => void;
   onClosed: () => void;
 }) {
+  // Fetches the full trade detail (including fundednext_context, which the
+  // list endpoint deliberately omits to keep the table lean) rather than
+  // reusing the row object the table already had. `trade` is derived so it
+  // only ever reflects the currently-selected tradeId — no separate
+  // synchronous reset call needed when the selection changes.
+  const [fetched, setFetched] = useState<{ id: number; data: Trade } | null>(null);
+  const trade = fetched?.id === tradeId ? fetched.data : null;
   const [exitPrice, setExitPrice] = useState("");
   const [result, setResult] = useState<"WIN" | "LOSS" | "BE">("WIN");
   const [rMultiple, setRMultiple] = useState("");
   const [pnl, setPnl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tradeId === null) return;
+    let cancelled = false;
+    api.trade(tradeId).then((t) => !cancelled && setFetched({ id: tradeId, data: t }));
+    return () => {
+      cancelled = true;
+    };
+  }, [tradeId]);
 
   async function handleClose() {
     if (!trade) return;
@@ -52,7 +69,7 @@ export function TradeDetailSheet({
   }
 
   return (
-    <Sheet open={trade !== null} onOpenChange={onOpenChange}>
+    <Sheet open={tradeId !== null} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-md">
         {trade && (
           <>
@@ -86,6 +103,8 @@ export function TradeDetailSheet({
                   <Field label="Displacement" value={trade.displacement ?? "None"} />
                 </div>
               </div>
+
+              <FundedNextContextCard snapshot={trade.fundednext_context} />
 
               {trade.notes && (
                 <div>

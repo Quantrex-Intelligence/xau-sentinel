@@ -244,6 +244,76 @@ def test_fundednext_violations_empty_when_safe(api_client):
     assert isinstance(resp.json(), list)
 
 
+def test_trade_creation_automatically_captures_fundednext_context(api_client):
+    resp = api_client.post("/api/journal/trades", json={
+        "trade_date": "2026-09-27", "trade_time": "10:00:00", "direction": "BUY",
+        "entry": 3740.0, "stop_loss": 3735.0,
+    })
+    trade_id = resp.json()["id"]
+
+    detail = api_client.get(f"/api/journal/trades/{trade_id}").json()
+    ctx = detail["fundednext_context"]
+    assert ctx is not None
+    assert ctx["data_available"] is True
+    assert ctx["mode"] == "mock"
+    assert ctx["account_type"] == "stellar_2step"  # default settings
+    assert ctx["balance"] is not None and ctx["equity"] is not None
+    assert ctx["daily_loss_pct_rule"] == 0.05  # Stellar 2-Step's verified rule
+
+
+def test_journal_list_endpoint_does_not_include_fundednext_context(api_client):
+    """Keeps the main journal table uncluttered — only the single-trade
+    detail view carries the full FundedNext context."""
+    api_client.post("/api/journal/trades", json={
+        "trade_date": "2026-09-27", "trade_time": "10:00:00", "direction": "BUY",
+        "entry": 3740.0, "stop_loss": 3735.0,
+    })
+    trades = api_client.get("/api/journal/trades").json()
+    assert len(trades) == 1
+    assert "fundednext_context" not in trades[0] or trades[0]["fundednext_context"] is None
+
+
+def test_fundednext_context_is_immutable_across_setting_changes(api_client):
+    r1 = api_client.post("/api/journal/trades", json={
+        "trade_date": "2026-09-27", "trade_time": "09:00:00", "direction": "BUY",
+        "entry": 3740.0, "stop_loss": 3735.0,
+    })
+    trade1_id = r1.json()["id"]
+    snap1 = api_client.get(f"/api/journal/trades/{trade1_id}").json()["fundednext_context"]
+    assert snap1["account_type"] == "stellar_2step"
+
+    api_client.put("/api/fundednext/settings", json={"account_type": "stellar_lite"})
+
+    r2 = api_client.post("/api/journal/trades", json={
+        "trade_date": "2026-09-27", "trade_time": "11:00:00", "direction": "SELL",
+        "entry": 3745.0, "stop_loss": 3750.0,
+    })
+    trade2_id = r2.json()["id"]
+    snap2 = api_client.get(f"/api/journal/trades/{trade2_id}").json()["fundednext_context"]
+    assert snap2["account_type"] == "stellar_lite"
+
+    # Trade 1's stored context must be completely unaffected by the settings change.
+    snap1_again = api_client.get(f"/api/journal/trades/{trade1_id}").json()["fundednext_context"]
+    assert snap1_again == snap1
+    assert snap1_again["account_type"] == "stellar_2step"
+
+
+def test_trade_without_fundednext_context_returns_null_not_error(api_client):
+    """A trade created before this feature existed (or if capture somehow
+    failed) must degrade to null, never a crash on read."""
+    from journal import trades as trades_repo
+    trade_id = trades_repo.create_trade(
+        {"trade_date": "2026-09-27", "trade_time": "09:00:00", "symbol": "XAUUSD",
+         "direction": "BUY", "session": None, "entry": 100.0, "stop_loss": 95.0,
+         "take_profit": None, "planned_rr": None, "setup": None, "market_regime": None,
+         "notes": None, "screenshot_path": None},
+        {"h4_bias": None, "h1_bias": None, "m15_bias": None, "m5_bias": None,
+         "regime": None, "liquidity": None, "mss": None, "displacement": None, "session": None},
+    )
+    detail = api_client.get(f"/api/journal/trades/{trade_id}").json()
+    assert detail["fundednext_context"] is None
+
+
 def test_websocket_market_stream_sends_valid_snapshot(api_client):
     with api_client.websocket_connect("/ws/market") as ws:
         data = ws.receive_json()

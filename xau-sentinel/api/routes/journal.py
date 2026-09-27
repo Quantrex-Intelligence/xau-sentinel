@@ -1,11 +1,20 @@
 """Journal routes. Trade creation captures market context the same way
 app.py does today: build a snapshot at the moment of creation and pass it
 straight into journal.trades.create_trade's context dict — no separate
-context-computation path."""
+context-computation path. It also captures a FundedNext account/risk
+snapshot at the same moment (see risk/fundednext_journal.py) — a one-time
+INSERT, never updated, so historical trades never drift as the live
+account changes later."""
 from fastapi import APIRouter, HTTPException, Query
 
 import config
 from journal import trades as trades_repo
+from risk import settings_store
+from risk.fundednext import compute_status
+from risk.fundednext_journal import get_snapshot as get_fundednext_snapshot
+from risk.fundednext_journal import save_snapshot as save_fundednext_snapshot
+from risk.models import AccountType, Phase
+from risk.rules import get_rules
 
 from api.schemas import AnalyticsOut, TradeCloseIn, TradeCreateIn, TradeOut
 from api.snapshot import build_snapshot
@@ -28,6 +37,9 @@ def get_trade(trade_id: int):
     trade = trades_repo.get_trade(trade_id)
     if trade is None:
         raise HTTPException(status_code=404, detail="Trade not found")
+    # Attached only on the single-trade detail view, per spec — the list/
+    # table view stays uncluttered.
+    trade["fundednext_context"] = get_fundednext_snapshot(trade_id)
     return TradeOut(**trade)
 
 
@@ -56,6 +68,13 @@ def create_trade(payload: TradeCreateIn):
         "session": snapshot.session,
     }
     trade_id = trades_repo.create_trade(trade_data, context)
+
+    fn_settings = settings_store.get_settings()
+    account_type = AccountType(fn_settings["account_type"])
+    fn_status = compute_status(account_type, Phase(fn_settings["phase"]), fn_settings["consistency_enabled"])
+    rules = get_rules(account_type)
+    save_fundednext_snapshot(trade_id, fn_status, rules.daily_loss_pct, rules.max_loss_pct)
+
     return TradeOut(**trades_repo.get_trade(trade_id))
 
 

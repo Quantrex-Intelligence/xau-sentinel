@@ -110,6 +110,25 @@ export interface MarketSnapshot {
   data_error: string | null;
 }
 
+export interface FundedNextTradeSnapshot {
+  data_available: boolean;
+  account_type: FundedNextAccountType | null;
+  phase: FundedNextPhase | null;
+  mode: "mock" | "live" | null;
+  balance: number | null;
+  equity: number | null;
+  today_pnl: number | null;
+  daily_loss_remaining: number | null;
+  daily_loss_used_pct: number | null;
+  max_drawdown_remaining: number | null;
+  max_drawdown_used_pct: number | null;
+  daily_loss_pct_rule: number | null;
+  max_loss_pct_rule: number | null;
+  safety_level: SafetyLevel | null;
+  reason: string | null;
+  captured_at: string | null;
+}
+
 export interface Trade {
   id: number;
   trade_date: string;
@@ -144,6 +163,7 @@ export interface Trade {
   liquidity: string | null;
   mss: string | null;
   displacement: string | null;
+  fundednext_context: FundedNextTradeSnapshot | null;
 }
 
 export interface TradeCreateInput {

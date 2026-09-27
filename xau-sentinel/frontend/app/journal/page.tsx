@@ -11,11 +11,15 @@ import type { Trade } from "@/lib/types";
 
 export default function JournalPage() {
   const [refreshKey, setRefreshKey] = useState(0);
-  const [selected, setSelected] = useState<Trade | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const { data: trades } = usePolling(() => api.trades(), 5000, [refreshKey]);
 
   function refetch() {
     setRefreshKey((k) => k + 1);
+  }
+
+  function handleSelect(trade: Trade) {
+    setSelectedId(trade.id);
   }
 
   return (
@@ -23,12 +27,12 @@ export default function JournalPage() {
       <NewTradeForm onCreated={refetch} />
 
       <Panel title="Trades">
-        <TradeTable trades={trades ?? []} onSelect={setSelected} />
+        <TradeTable trades={trades ?? []} onSelect={handleSelect} />
       </Panel>
 
       <TradeDetailSheet
-        trade={selected}
-        onOpenChange={(open) => !open && setSelected(null)}
+        tradeId={selectedId}
+        onOpenChange={(open) => !open && setSelectedId(null)}
         onClosed={refetch}
       />
     </div>
