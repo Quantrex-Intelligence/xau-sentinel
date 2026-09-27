@@ -81,3 +81,13 @@ def temp_db(monkeypatch, tmp_path):
     from journal.database import init_db
     init_db()
     return str(db_path)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_fundednext_state(monkeypatch, tmp_path):
+    """Redirects the FundedNext settings/day-state JSON files to a per-test
+    tmp dir, so no test ever reads or writes the developer's real
+    data/fundednext_*.json."""
+    from risk import day_tracker, settings_store
+    monkeypatch.setattr(settings_store, "SETTINGS_PATH", tmp_path / "fundednext_settings.json")
+    monkeypatch.setattr(day_tracker, "STATE_PATH", tmp_path / "fundednext_day_state.json")

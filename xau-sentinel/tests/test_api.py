@@ -192,6 +192,58 @@ def test_settings_endpoint_exposes_no_secrets(api_client):
         assert secret_field not in serialized
 
 
+def test_fundednext_status_reflects_mock_mode(api_client):
+    resp = api_client.get("/api/fundednext/status")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mode"] == "mock"
+    assert body["data_available"] is True
+    assert body["safety_level"] in ("SAFE", "WARNING", "CRITICAL", "BREACHED")
+
+
+def test_fundednext_risk_alias_matches_status(api_client):
+    status = api_client.get("/api/fundednext/status").json()
+    risk = api_client.get("/api/fundednext/risk").json()
+    assert status["safety_level"] == risk["safety_level"]
+    assert status["account_type"] == risk["account_type"]
+
+
+def test_fundednext_rules_lists_both_account_types(api_client):
+    resp = api_client.get("/api/fundednext/rules")
+    assert resp.status_code == 200
+    labels = {r["account_type"] for r in resp.json()}
+    assert labels == {"stellar_2step", "stellar_lite"}
+
+
+def test_fundednext_settings_default_and_update(api_client):
+    default = api_client.get("/api/fundednext/settings").json()
+    assert default["account_type"] == "stellar_2step"
+    assert default["phase"] == "challenge"
+    assert default["consistency_enabled"] is False
+
+    updated = api_client.put("/api/fundednext/settings", json={
+        "account_type": "stellar_lite", "phase": "funded", "consistency_enabled": True,
+    })
+    assert updated.status_code == 200
+    assert updated.json() == {"account_type": "stellar_lite", "phase": "funded", "consistency_enabled": True}
+
+    # The new settings actually drive /status, not just echoed back.
+    status = api_client.get("/api/fundednext/status").json()
+    assert status["account_type"] == "stellar_lite"
+    assert status["phase"] == "funded"
+
+
+def test_fundednext_settings_rejects_invalid_account_type(api_client):
+    resp = api_client.put("/api/fundednext/settings", json={"account_type": "not_a_real_account"})
+    assert resp.status_code == 400
+
+
+def test_fundednext_violations_empty_when_safe(api_client):
+    resp = api_client.get("/api/fundednext/violations")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
 def test_websocket_market_stream_sends_valid_snapshot(api_client):
     with api_client.websocket_connect("/ws/market") as ws:
         data = ws.receive_json()

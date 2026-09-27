@@ -8,6 +8,9 @@ import type {
   Analytics,
   Candle,
   EventItem,
+  FundedNextRuleSet,
+  FundedNextSettings,
+  FundedNextStatus,
   Liquidity,
   MarketSnapshot,
   Regime,
@@ -83,4 +86,10 @@ export const api = {
     const qs = filters ? `?${new URLSearchParams(filters).toString()}` : "";
     return request<Analytics>(`/api/journal/analytics${qs}`);
   },
+
+  fundedNextStatus: () => request<FundedNextStatus>("/api/fundednext/status"),
+  fundedNextRules: () => request<FundedNextRuleSet[]>("/api/fundednext/rules"),
+  fundedNextSettings: () => request<FundedNextSettings>("/api/fundednext/settings"),
+  updateFundedNextSettings: (payload: Partial<FundedNextSettings>) =>
+    request<FundedNextSettings>("/api/fundednext/settings", { method: "PUT", body: JSON.stringify(payload) }),
 };

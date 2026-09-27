@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from journal.database import init_db
-from api.routes import alerts, journal, market, risk, settings, setup
+from api.routes import alerts, fundednext, journal, market, risk, settings, setup
 from api import ws
 
 DEFAULT_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
@@ -40,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(alerts.router)
     app.include_router(journal.router)
     app.include_router(settings.router)
+    app.include_router(fundednext.router)
     app.include_router(ws.router)
 
     return app

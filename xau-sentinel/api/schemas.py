@@ -159,6 +159,71 @@ class AlertOut(BaseModel):
     details: Optional[Any] = None
 
 
+class FundedNextViolationOut(BaseModel):
+    rule: str
+    level: str
+    message: str
+
+
+class FundedNextStatusOut(BaseModel):
+    account_type: str
+    phase: str
+    mode: str
+    data_available: bool
+
+    balance: Optional[float] = None
+    equity: Optional[float] = None
+
+    day_start_balance: Optional[float] = None
+    today_pnl: Optional[float] = None
+    daily_loss_floor: Optional[float] = None
+    daily_loss_remaining: Optional[float] = None
+    daily_loss_used_pct: Optional[float] = None
+
+    max_loss_floor: Optional[float] = None
+    max_drawdown_remaining: Optional[float] = None
+    max_drawdown_used_pct: Optional[float] = None
+
+    profit_target: Optional[float] = None
+    profit_target_pct: Optional[float] = None
+    progress_to_target_pct: Optional[float] = None
+
+    trading_days_completed: Optional[int] = None
+    trading_days_required: Optional[int] = None
+
+    consistency_enabled: bool = False
+    consistency_limit_pct: Optional[float] = None
+    largest_day_pct_of_profit: Optional[float] = None
+
+    safety_level: str
+    violations: List[FundedNextViolationOut] = []
+    reason: str
+
+
+class FundedNextRuleSetOut(BaseModel):
+    account_type: str
+    label: str
+    daily_loss_pct: float
+    max_loss_pct: float
+    profit_target_phase1_pct: float
+    profit_target_phase2_pct: float
+    min_trading_days: int
+    consistency_pct: Optional[float] = None
+    drawdown_type: str
+
+
+class FundedNextSettingsOut(BaseModel):
+    account_type: str
+    phase: str
+    consistency_enabled: bool
+
+
+class FundedNextSettingsIn(BaseModel):
+    account_type: Optional[str] = None
+    phase: Optional[str] = None
+    consistency_enabled: Optional[bool] = None
+
+
 class SettingsOut(BaseModel):
     mode: str
     trading_symbol: str

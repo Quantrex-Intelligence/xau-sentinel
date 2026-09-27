@@ -56,5 +56,14 @@ RISK_PER_TRADE_PCT = float(os.getenv("RISK_PER_TRADE_PCT", 0.3))
 # than silently keep showing an old price as if it were current) ---
 DATA_STALE_SECONDS = int(os.getenv("DATA_STALE_SECONDS", 120))
 
+# --- FundedNext risk monitor (Stage 2, read-only decision support) ---
+# FundedNext's daily-loss reset happens at 00:00 "server time," which they
+# describe only as GMT+2 in winter / GMT+3 during EU daylight saving (an
+# EET/EEST pattern) without publishing an IANA zone name — configurable
+# since it's a documented-but-not-precisely-named detail. See risk/rules.py.
+FUNDEDNEXT_SERVER_TIMEZONE = os.getenv("FUNDEDNEXT_SERVER_TIMEZONE", "Europe/Nicosia").strip()
+FUNDEDNEXT_WARNING_THRESHOLD_PCT = float(os.getenv("FUNDEDNEXT_WARNING_THRESHOLD_PCT", 0.5))
+FUNDEDNEXT_CRITICAL_THRESHOLD_PCT = float(os.getenv("FUNDEDNEXT_CRITICAL_THRESHOLD_PCT", 0.8))
+
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"

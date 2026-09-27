@@ -190,6 +190,69 @@ export interface AlertItem {
   details: Record<string, unknown> | null;
 }
 
+export type FundedNextAccountType = "stellar_2step" | "stellar_lite";
+export type FundedNextPhase = "challenge" | "funded";
+export type SafetyLevel = "SAFE" | "WARNING" | "CRITICAL" | "BREACHED" | "UNKNOWN";
+
+export interface FundedNextViolation {
+  rule: string;
+  level: SafetyLevel;
+  message: string;
+}
+
+export interface FundedNextStatus {
+  account_type: FundedNextAccountType;
+  phase: FundedNextPhase;
+  mode: "mock" | "live";
+  data_available: boolean;
+
+  balance: number | null;
+  equity: number | null;
+
+  day_start_balance: number | null;
+  today_pnl: number | null;
+  daily_loss_floor: number | null;
+  daily_loss_remaining: number | null;
+  daily_loss_used_pct: number | null;
+
+  max_loss_floor: number | null;
+  max_drawdown_remaining: number | null;
+  max_drawdown_used_pct: number | null;
+
+  profit_target: number | null;
+  profit_target_pct: number | null;
+  progress_to_target_pct: number | null;
+
+  trading_days_completed: number | null;
+  trading_days_required: number | null;
+
+  consistency_enabled: boolean;
+  consistency_limit_pct: number | null;
+  largest_day_pct_of_profit: number | null;
+
+  safety_level: SafetyLevel;
+  violations: FundedNextViolation[];
+  reason: string;
+}
+
+export interface FundedNextRuleSet {
+  account_type: FundedNextAccountType;
+  label: string;
+  daily_loss_pct: number;
+  max_loss_pct: number;
+  profit_target_phase1_pct: number;
+  profit_target_phase2_pct: number;
+  min_trading_days: number;
+  consistency_pct: number | null;
+  drawdown_type: string;
+}
+
+export interface FundedNextSettings {
+  account_type: FundedNextAccountType;
+  phase: FundedNextPhase;
+  consistency_enabled: boolean;
+}
+
 export interface Settings {
   mode: "mock" | "live";
   trading_symbol: string;

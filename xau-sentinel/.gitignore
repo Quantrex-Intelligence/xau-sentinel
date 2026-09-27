@@ -6,6 +6,8 @@ venv/
 
 data/*.db
 data/screenshots/
+data/fundednext_settings.json
+data/fundednext_day_state.json
 
 .pytest_cache/
 .pytest_tmp/

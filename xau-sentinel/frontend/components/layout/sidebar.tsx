@@ -9,6 +9,7 @@ import {
   Target,
   BookText,
   BarChart3,
+  ShieldAlert,
   Settings,
 } from "lucide-react";
 
@@ -16,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/market", label: "Market", icon: LineChart },
   { href: "/setups", label: "Setups", icon: Target },
+  { href: "/fundednext", label: "FundedNext", icon: ShieldAlert },
   { href: "/journal", label: "Journal", icon: BookText },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
