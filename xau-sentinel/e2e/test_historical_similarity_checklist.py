@@ -37,8 +37,15 @@ def main() -> int:
 
     trade_a = _create_trade()
     trade_b = _create_trade()
+    # top_k generously high: this checklist runs against the persistent dev
+    # DB (not an isolated per-run one), which accumulates trades created by
+    # every past run — a small default top_k could let enough older,
+    # equally-or-more-similar trades crowd out the one THIS run just
+    # created, an intermittent failure unrelated to any real regression
+    # (see the project's documented E2E test-data-hygiene lesson).
     trade_similarity = httpx.get(
-        f"{API_BASE}/api/similarity/trade/{trade_a['id']}", timeout=10, params={"min_similarity": 0.0}
+        f"{API_BASE}/api/similarity/trade/{trade_a['id']}", timeout=10,
+        params={"min_similarity": 0.0, "top_k": 1000},
     ).json()
     trade_ids = {m["trade_id"] for m in trade_similarity["matches"]}
     check("API: a trade never matches itself", trade_a["id"] not in trade_ids)
@@ -68,7 +75,14 @@ def main() -> int:
 
         page.goto(f"{BASE}/setups", wait_until="networkidle", timeout=30000)
         try:
-            page.get_by_text("Historical Similarity", exact=False).wait_for(state="visible", timeout=15000)
+            # A specific heading-role locator, not a loose text substring:
+            # since Stage 10 the mock provider's echoed prompt (shown in the
+            # A+ panel's AI Explanation/Interpretation text) also contains
+            # the phrase "historical similarity" as part of its evidence
+            # block, which would otherwise make a plain get_by_text
+            # ambiguous (matches this panel's own <h3> AND those two
+            # unrelated paragraphs).
+            page.get_by_role("heading", name="Historical Similarity").wait_for(state="visible", timeout=15000)
             check("UI: Historical Similarity panel renders on the Setups page", True)
         except Exception:
             check("UI: Historical Similarity panel renders on the Setups page", False)

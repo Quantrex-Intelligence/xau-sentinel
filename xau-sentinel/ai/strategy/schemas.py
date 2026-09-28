@@ -45,6 +45,52 @@ class FundedNextGateOut(BaseModel):
     reason: Optional[str] = None
 
 
+class MarketIntelligenceSummaryOut(BaseModel):
+    """Short, deterministic text summaries per Market Intelligence category
+    (Stage 10) — never the full raw snapshot (that duplicates
+    ai/market_intelligence/schemas.py unnecessarily) and never LLM prose.
+    `relevant=False` means nothing here cleared the bar (no HIGH-importance
+    event, no news) — the other fields stay None rather than being padded
+    with low-signal detail, per the "relevant evidence, not maximum
+    context" requirement."""
+    relevant: bool
+    macro: Optional[str] = None
+    events: Optional[str] = None
+    news: Optional[str] = None
+    cross_asset: Optional[str] = None
+
+
+class ContextualAnalysisOut(BaseModel):
+    """Stage 10's structured synthesis, attached to StrategyEvaluationOut
+    alongside (never replacing) the existing `llm_explanation` fields.
+    `rating`/`deterministic_rating` are ALWAYS copied from the already-
+    decided StrategyEvaluationOut.rating — there is no code path that asks
+    the LLM for a rating at all, so it cannot set one independently (see
+    ai/strategy/evidence.py). Every field except `interpretation` is built
+    by plain Python from `result`/`ContextualEvidence`, never parsed out of
+    the model's own text — the same "LLM never becomes the source of
+    truth" rule this project has used since Stage 3."""
+    rating: Rating
+    deterministic_rating: Rating
+
+    technical_summary: str
+    strategy_summary: str
+    market_intelligence: MarketIntelligenceSummaryOut
+    historical_context: str
+    risk_context: str
+
+    # The one and only LLM-authored field — still passed through the same
+    # safety filters as llm_explanation before being attached.
+    interpretation: str
+    # Deterministic — built from missing_conditions plus each evidence
+    # source's own relevance flag, never invented.
+    uncertainties: List[str] = []
+
+    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
+    llm_error: Optional[str] = None
+
+
 class StrategyEvaluationOut(BaseModel):
     rating: Rating
     direction: Optional[str] = None  # "BUY" | "SELL" | None (no candidate)
@@ -74,3 +120,10 @@ class StrategyEvaluationOut(BaseModel):
     llm_provider: Optional[str] = None
     llm_model: Optional[str] = None
     llm_error: Optional[str] = None
+
+    # Stage 10 — a structured synthesis across every evidence source,
+    # alongside (never replacing) llm_explanation above. None when the
+    # caller never asked for it (see ai/strategy/evaluator.py::
+    # attach_llm_explanation's `evidence` parameter) — every pre-Stage-10
+    # caller keeps getting exactly None here, unchanged.
+    contextual_analysis: Optional[ContextualAnalysisOut] = None

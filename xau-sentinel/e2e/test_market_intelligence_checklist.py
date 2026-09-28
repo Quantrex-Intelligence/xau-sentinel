@@ -89,12 +89,23 @@ def main() -> int:
             setups_page_loaded = True
         except Exception:
             setups_page_loaded = False
-        # Case-insensitive: the panel's own header is styled with CSS
-        # text-transform:uppercase, so a rendered "MARKET INTELLIGENCE"
-        # would otherwise slip past a mixed-case substring check.
-        setups_body_text = page.inner_text("body").lower() if setups_page_loaded else ""
+        # A specific toggle-button locator, not a page-wide text substring:
+        # since Stage 10 the A+ panel legitimately shows a small "Market
+        # Intelligence" SECTION LABEL (a <p>, not a button) as part of its
+        # own contextual analysis when relevant — a blanket substring check
+        # would false-positive on that intentional, different mention. The
+        # actual thing this check cares about — the full Stage 9 browsing
+        # widget from ai/market_intelligence/ — is a collapsible toggle
+        # <button>, which this targets specifically.
+        mi_panel_toggle_present = False
+        if setups_page_loaded:
+            try:
+                page.get_by_role("button", name="Market intelligence").wait_for(state="attached", timeout=1000)
+                mi_panel_toggle_present = True
+            except Exception:
+                mi_panel_toggle_present = False
         check("UI: Setups page is not cluttered with the Market Intelligence panel",
-              setups_page_loaded and "market intelligence" not in setups_body_text)
+              setups_page_loaded and not mi_panel_toggle_present)
 
         check("UI: no browser console errors", len(console_errors) == 0 and len(page_errors) == 0,
               str(console_errors + page_errors))

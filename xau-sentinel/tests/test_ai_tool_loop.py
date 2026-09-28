@@ -290,3 +290,27 @@ def test_market_intelligence_tool_works_alongside_every_other_evidence_source(mo
     assert len(result.knowledge_used) > 0
     assert len(result.memory_used) > 0
     assert set(result.context_used) == {"Market Structure", "Setup", "FundedNext Risk"}
+
+
+def test_full_setup_analysis_uses_several_tools_within_the_round_limit(monkeypatch, temp_db):
+    """Stage 10: a "Analyze XAUUSD"-style request can call a sequence of
+    several existing tools (never a new one) and still complete comfortably
+    within AI_TOOL_MAX_ROUNDS — proves the round-limit protection from
+    Stage 6 is untouched and still governs this richer request."""
+    provider = _ScriptedProvider([
+        _tool_use_response(ToolCall(id="c1", name="get_market_structure", arguments={})),
+        _tool_use_response(ToolCall(id="c2", name="get_current_setup", arguments={})),
+        _tool_use_response(ToolCall(id="c3", name="get_risk_status", arguments={})),
+        _text_response(
+            "Technical: H1 structure supports the bias. Strategy: setup is DEVELOPING, missing "
+            "retracement. Risk: FundedNext is SAFE. AI Interpretation: evidence is broadly supportive."
+        ),
+    ])
+    _use_provider(monkeypatch, provider)
+
+    result = assistant.chat("Analyze XAUUSD — why is this setup developing?")
+
+    assert len(provider.calls) <= config.AI_TOOL_MAX_ROUNDS + 1  # existing bound still governs
+    tool_names = {t.name for t in result.tools_used}
+    assert tool_names == {"get_market_structure", "get_current_setup", "get_risk_status"}
+    assert "AI Interpretation" in result.answer

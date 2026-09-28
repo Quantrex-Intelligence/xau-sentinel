@@ -504,6 +504,42 @@ export interface StrategyEvaluation {
   llm_provider: string | null;
   llm_model: string | null;
   llm_error: string | null;
+
+  /** Stage 10 — a structured synthesis across every evidence source,
+   * alongside (never replacing) llm_explanation above. null when the
+   * server didn't build one. */
+  contextual_analysis: ContextualAnalysis | null;
+}
+
+/** Mirrors ai/strategy/schemas.py's MarketIntelligenceSummaryOut (Stage 10) —
+ * short deterministic text per category, never the full raw snapshot.
+ * relevant=false means nothing cleared the bar (no HIGH-importance event,
+ * no news); the other fields stay null rather than being padded. */
+export interface MarketIntelligenceSummary {
+  relevant: boolean;
+  macro: string | null;
+  events: string | null;
+  news: string | null;
+  cross_asset: string | null;
+}
+
+/** Mirrors ai/strategy/schemas.py's ContextualAnalysisOut (Stage 10).
+ * `rating`/`deterministic_rating` are always copied from the deterministic
+ * evaluator — every field except `interpretation` is deterministic text,
+ * never LLM output. */
+export interface ContextualAnalysis {
+  rating: StrategyRating;
+  deterministic_rating: StrategyRating;
+  technical_summary: string;
+  strategy_summary: string;
+  market_intelligence: MarketIntelligenceSummary;
+  historical_context: string;
+  risk_context: string;
+  interpretation: string;
+  uncertainties: string[];
+  llm_provider: string | null;
+  llm_model: string | null;
+  llm_error: string | null;
 }
 
 /** Mirrors ai/market_intelligence/schemas.py (Stage 9) — macro, gold

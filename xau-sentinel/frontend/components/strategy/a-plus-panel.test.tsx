@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { AplusPanel } from "./a-plus-panel";
-import type { StrategyEvaluation } from "@/lib/types";
+import type { ContextualAnalysis, StrategyEvaluation } from "@/lib/types";
 
 const { strategyAPlus } = vi.hoisted(() => ({ strategyAPlus: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: { strategyAPlus } }));
@@ -30,6 +30,22 @@ const developing: StrategyEvaluation = {
   llm_explanation: null,
   llm_provider: null,
   llm_model: null,
+  llm_error: null,
+  contextual_analysis: null,
+};
+
+const contextualAnalysis: ContextualAnalysis = {
+  rating: "DEVELOPING",
+  deterministic_rating: "DEVELOPING",
+  technical_summary: "H4 bias: BULLISH — uptrend intact.",
+  strategy_summary: "Deterministic rating: DEVELOPING. Missing: M5 MSS.",
+  market_intelligence: { relevant: false, macro: null, events: null, news: null, cross_asset: null },
+  historical_context: "Historical similarity evidence is limited. Descriptive only — not a prediction.",
+  risk_context: "Safety level SAFE, daily loss used 10% (A+ limit 50%).",
+  interpretation: "Evidence is broadly supportive but M5 confirmation is still missing.",
+  uncertainties: ["M5 MSS"],
+  llm_provider: "mock",
+  llm_model: "mock-deterministic-v1",
   llm_error: null,
 };
 
@@ -97,5 +113,50 @@ describe("AplusPanel", () => {
     strategyAPlus.mockRejectedValue(new Error("Network error"));
     render(<AplusPanel />);
     await waitFor(() => expect(screen.getByText(/Evaluation unavailable/)).toBeInTheDocument());
+  });
+
+  it("renders no contextual-analysis block when the server didn't build one", async () => {
+    strategyAPlus.mockResolvedValue(developing);
+    render(<AplusPanel />);
+    await waitFor(() => expect(screen.getByText(/DEVELOPING/)).toBeInTheDocument());
+    expect(screen.queryByText("AI Interpretation")).not.toBeInTheDocument();
+  });
+
+  it("renders Technical/Strategy/Historical/Risk sections and the AI Interpretation when present", async () => {
+    strategyAPlus.mockResolvedValue({ ...developing, contextual_analysis: contextualAnalysis });
+    render(<AplusPanel />);
+
+    await waitFor(() => expect(screen.getByText("AI Interpretation")).toBeInTheDocument());
+    expect(screen.getByText("Technical")).toBeInTheDocument();
+    expect(screen.getByText("Historical Context")).toBeInTheDocument();
+    expect(screen.getByText(/Evidence is broadly supportive/)).toBeInTheDocument();
+    expect(screen.getByText(/Uncertainties: M5 MSS/)).toBeInTheDocument();
+  });
+
+  it("does not render a Market Intelligence section when it isn't relevant", async () => {
+    strategyAPlus.mockResolvedValue({ ...developing, contextual_analysis: contextualAnalysis });
+    render(<AplusPanel />);
+    await waitFor(() => expect(screen.getByText("AI Interpretation")).toBeInTheDocument());
+    expect(screen.queryByText("Market Intelligence")).not.toBeInTheDocument();
+  });
+
+  it("renders a Market Intelligence section when it is relevant", async () => {
+    const withMi: ContextualAnalysis = {
+      ...contextualAnalysis,
+      market_intelligence: { relevant: true, macro: "Fed funds 5.25%.", events: null, news: null, cross_asset: null },
+    };
+    strategyAPlus.mockResolvedValue({ ...developing, contextual_analysis: withMi });
+    render(<AplusPanel />);
+    await waitFor(() => expect(screen.getByText("Market Intelligence")).toBeInTheDocument());
+    expect(screen.getByText(/Fed funds 5.25%/)).toBeInTheDocument();
+  });
+
+  it("never renders probability or win-forecast language in the interpretation section", async () => {
+    strategyAPlus.mockResolvedValue({ ...developing, contextual_analysis: contextualAnalysis });
+    render(<AplusPanel />);
+    await waitFor(() => expect(screen.getByText("AI Interpretation")).toBeInTheDocument());
+    const bodyText = document.body.textContent ?? "";
+    expect(bodyText.toLowerCase()).not.toContain("probability");
+    expect(bodyText.toLowerCase()).not.toContain("chance of winning");
   });
 });

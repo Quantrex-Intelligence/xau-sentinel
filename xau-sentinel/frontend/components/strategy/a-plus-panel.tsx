@@ -6,8 +6,8 @@ import { usePolling } from "@/lib/use-polling";
 import { api } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { StrategyCriterion, StrategyCriterionStatus, StrategyRating } from "@/lib/types";
-import { Check, X, HelpCircle } from "lucide-react";
+import type { ContextualAnalysis, StrategyCriterion, StrategyCriterionStatus, StrategyRating } from "@/lib/types";
+import { Check, X, HelpCircle, Sparkles } from "lucide-react";
 
 const RATING_STYLES: Record<StrategyRating, { text: string; bg: string; dot: string }> = {
   "A+": { text: "text-bullish", bg: "bg-bullish/10 border-bullish/30", dot: "bg-bullish" },
@@ -47,6 +47,64 @@ function CriterionRow({ criterion }: { criterion: StrategyCriterion }) {
         <p className="text-sm text-foreground">{criterion.name}</p>
         <p className="text-[11px] text-muted-foreground leading-snug">{criterion.evidence}</p>
       </div>
+    </div>
+  );
+}
+
+/** Stage 10: one deterministic section — plain text Sentinel already knows,
+ * never LLM output. Distinct visual treatment from <InterpretationSection>
+ * below, per the "what does Sentinel know vs. what does the AI think"
+ * distinction the spec asks for. */
+function AnalysisSection({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="mb-2">
+      <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">{label}</p>
+      <p className="text-xs text-foreground leading-snug">{text}</p>
+    </div>
+  );
+}
+
+function InterpretationSection({ analysis }: { analysis: ContextualAnalysis }) {
+  return (
+    <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 mb-3">
+      <p className="text-[11px] font-semibold text-primary uppercase mb-1 flex items-center gap-1">
+        <Sparkles className="size-3" /> AI Interpretation
+      </p>
+      <p className="text-xs text-foreground whitespace-pre-wrap">{analysis.interpretation}</p>
+      {analysis.uncertainties.length > 0 && (
+        <p className="text-[11px] text-muted-foreground mt-1">
+          Uncertainties: {analysis.uncertainties.join("; ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Stage 10: the contextual-analysis block — Technical/Strategy/Market
+ * Intelligence/Historical/Risk are all deterministic text built from the
+ * evidence Sentinel already gathered (see ai/strategy/evidence.py); only
+ * "AI Interpretation" above is LLM-authored, and it's the only section
+ * styled distinctly. Market Intelligence renders only when relevant —
+ * never padded with an empty macro/events/news block. */
+function ContextualAnalysisBlock({ analysis }: { analysis: ContextualAnalysis }) {
+  return (
+    <div className="mb-3 pt-3 border-t border-border">
+      <AnalysisSection label="Technical" text={analysis.technical_summary} />
+      <AnalysisSection label="Strategy" text={analysis.strategy_summary} />
+      {analysis.market_intelligence.relevant && (
+        <AnalysisSection
+          label="Market Intelligence"
+          text={[
+            analysis.market_intelligence.macro,
+            analysis.market_intelligence.events,
+            analysis.market_intelligence.news,
+            analysis.market_intelligence.cross_asset,
+          ].filter(Boolean).join(" ")}
+        />
+      )}
+      <AnalysisSection label="Historical Context" text={analysis.historical_context} />
+      <AnalysisSection label="Risk" text={analysis.risk_context} />
+      <InterpretationSection analysis={analysis} />
     </div>
   );
 }
@@ -143,6 +201,8 @@ export function AplusPanel() {
           )}
         </div>
       )}
+
+      {result.contextual_analysis && <ContextualAnalysisBlock analysis={result.contextual_analysis} />}
 
       <p className="text-[10px] text-muted-foreground">Evaluated {formatTimestamp(result.evaluated_at)}</p>
     </Panel>

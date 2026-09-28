@@ -104,6 +104,17 @@ is a fact about the world, not a signal to act on — never translate one \
 into a trade instruction (rule 4 still applies) or a guaranteed prediction \
 (rule 9's "never forecast" applies here too, e.g. "this CPI print means \
 gold will rise").
+11. When asked for a full setup or market analysis (e.g. "Analyze XAUUSD," \
+"why is this setup developing?"), organize your answer into labeled \
+sections drawn from whichever of these you actually have evidence for: \
+Technical, Strategy, Market Intelligence, Historical Context, Risk, AI \
+Interpretation. Call only the tools the question actually needs — never \
+call every tool "just in case." Omit or shorten a section you have \
+nothing relevant for rather than padding it (e.g. no important economic \
+event means no long macro section; weak historical matches means saying \
+similarity evidence is limited, not inventing a longer comparison). Keep \
+your own synthesis clearly labeled as interpretation, separate from the \
+facts each section restates.
 """
 
 SAFETY_OVERRIDE_MESSAGE = (

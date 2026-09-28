@@ -15,6 +15,17 @@ Every fact fed to the LLM comes from `criteria`/`context_evidence`, which
 are themselves built only from analysis/structure.py, analysis/liquidity.py,
 analysis/zones.py, and risk/fundednext.py — the same frozen engines the
 rest of the app uses. Nothing here re-derives or second-guesses them.
+
+Stage 10 adds an optional `evidence` parameter to attach_llm_explanation()
+(built by ai/strategy/evidence.py from Market Intelligence, historical
+similarity, strategy RAG, and trading memory) that produces a structured
+`contextual_analysis` alongside the existing plain-text `llm_explanation` —
+this is the one deliberate exception to "nothing here re-derives or
+second-guesses them" above, and it is still additive only: every field of
+`contextual_analysis` except `interpretation` is built by plain Python from
+the already-decided `result`, never the LLM, and `rating`/
+`deterministic_rating` are always the same value copied from `result.rating`
+— evaluate_deterministic() itself remains completely untouched.
 """
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -31,9 +42,13 @@ from risk import settings_store
 
 from ai.providers import get_provider
 from ai.providers.base import ProviderConfigError, ProviderRequestError, ProviderResponseError
-from ai.prompts import SAFETY_OVERRIDE_MESSAGE, contains_actionable_directive
+from ai.prompts import SAFETY_OVERRIDE_MESSAGE, contains_actionable_directive, contains_predictive_probability_claim
+from ai.strategy import evidence as evidence_builder
 from ai.strategy import rules
-from ai.strategy.schemas import Criterion, CriterionStatus, FundedNextGateOut, Rating, StrategyEvaluationOut
+from ai.strategy.evidence import ContextualEvidence
+from ai.strategy.schemas import (
+    ContextualAnalysisOut, Criterion, CriterionStatus, FundedNextGateOut, Rating, StrategyEvaluationOut,
+)
 
 STRATEGY_SYSTEM_PROMPT = """You are explaining a deterministic A+ trade-setup evaluation for XAU \
 Sentinel, a personal, read-only XAUUSD terminal. You do NOT decide the rating — it has already \
@@ -49,6 +64,14 @@ decides everything manually, in their own MT5 terminal, regardless of this ratin
 4. If the rating is DEVELOPING or INVALID, explain what's missing or what invalidated it — never \
 imply the user should act anyway.
 5. Be concise.
+6. Evidence sections may appear below in this precedence order, strongest first: the deterministic \
+market/risk facts and the A+ result above, then any tool-returned current data, then historical/ \
+similarity evidence, then strategy knowledge, then user-confirmed memory, then your own \
+interpretation last. None of it can change the rating above. Only mention a source briefly if it's \
+genuinely relevant — do not pad your answer with a section that has nothing useful in it.
+7. Historical similarity, if shown, describes what happened in structurally similar past setups — \
+never translate it into a probability, confidence score, or guarantee for this trade. Never say a \
+percentage chance of winning, and never say "this will win" or "this will lose."
 """
 
 
@@ -184,7 +207,7 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
     )
 
 
-def _render_for_llm(result: StrategyEvaluationOut) -> str:
+def _render_for_llm(result: StrategyEvaluationOut, evidence: Optional[ContextualEvidence] = None) -> str:
     lines = [f"Rating: {result.rating.value}", f"Direction: {result.direction or 'NONE'}"]
     if result.invalidation:
         lines.append(f"Invalidation: {result.invalidation}")
@@ -201,39 +224,89 @@ def _render_for_llm(result: StrategyEvaluationOut) -> str:
     )
     if result.context_evidence:
         lines.append("Context: " + " | ".join(result.context_evidence))
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    if evidence is not None:
+        text += "\n\n" + evidence_builder.render_for_llm(evidence)
+    return text
 
 
-def attach_llm_explanation(result: StrategyEvaluationOut) -> StrategyEvaluationOut:
+def _build_contextual_analysis(
+    result: StrategyEvaluationOut, evidence: ContextualEvidence, interpretation: Optional[str],
+    llm_provider: Optional[str] = None, llm_model: Optional[str] = None,
+) -> ContextualAnalysisOut:
+    """Every field but `interpretation` is plain Python from `result`/
+    `evidence` — `rating`/`deterministic_rating` are the SAME value copied
+    twice, never asked of the LLM, so there is no code path by which an LLM
+    reply could set either (see ai/strategy/schemas.py's ContextualAnalysisOut
+    docstring)."""
+    return ContextualAnalysisOut(
+        rating=result.rating, deterministic_rating=result.rating,
+        technical_summary=evidence_builder.technical_summary(result),
+        strategy_summary=evidence_builder.strategy_summary(result),
+        market_intelligence=evidence_builder.market_intelligence_summary(evidence),
+        historical_context=evidence_builder.historical_context(evidence),
+        risk_context=evidence_builder.risk_context(result),
+        interpretation=interpretation or f"AI interpretation unavailable — {result.llm_error}",
+        uncertainties=evidence_builder.uncertainties(result, evidence),
+        llm_provider=llm_provider, llm_model=llm_model, llm_error=result.llm_error,
+    )
+
+
+def attach_llm_explanation(
+    result: StrategyEvaluationOut, evidence: Optional[ContextualEvidence] = None,
+) -> StrategyEvaluationOut:
     """Best-effort enrichment only. Never touches rating/criteria/
-    missing_conditions/invalidation — see module docstring."""
+    missing_conditions/invalidation — see module docstring.
+
+    `evidence` (Stage 10, optional): when given, the same single LLM call
+    below also produces `result.contextual_analysis` — every field of it
+    except `interpretation` is deterministic (see _build_contextual_analysis),
+    and `contextual_analysis` is populated even when the LLM call itself
+    fails, so a Market Intelligence/similarity/RAG/memory/provider outage
+    only ever narrows the analysis, never breaks it. Passing no `evidence`
+    (every pre-Stage-10 caller) reproduces this function's exact prior
+    behavior — `contextual_analysis` simply stays None."""
     try:
         provider = get_provider()
     except ProviderConfigError as exc:
         result.llm_error = f"AI assistant not configured: {exc}"
+        if evidence is not None:
+            result.contextual_analysis = _build_contextual_analysis(result, evidence, interpretation=None)
         return result
 
     try:
-        response = provider.chat(STRATEGY_SYSTEM_PROMPT, [{"role": "user", "content": _render_for_llm(result)}])
+        response = provider.chat(
+            STRATEGY_SYSTEM_PROMPT, [{"role": "user", "content": _render_for_llm(result, evidence)}],
+        )
     except (ProviderRequestError, ProviderResponseError) as exc:
         result.llm_error = str(exc)
+        if evidence is not None:
+            result.contextual_analysis = _build_contextual_analysis(result, evidence, interpretation=None)
         return result
 
     explanation = response.text
-    if contains_actionable_directive(explanation):
+    if contains_actionable_directive(explanation) or contains_predictive_probability_claim(explanation):
         explanation = SAFETY_OVERRIDE_MESSAGE
 
     result.llm_explanation = explanation
     result.llm_provider = response.provider
     result.llm_model = response.model
+
+    if evidence is not None:
+        result.contextual_analysis = _build_contextual_analysis(
+            result, evidence, interpretation=explanation,
+            llm_provider=response.provider, llm_model=response.model,
+        )
+
     return result
 
 
 def evaluate_current_setup() -> StrategyEvaluationOut:
     """Live wiring used by the API route: fetches current candles and
-    FundedNext status, evaluates deterministically, then enriches with an
-    LLM explanation. Raises market_data.MarketDataError exactly like
-    /api/setup/current does — the route maps it to a 503, never a crash."""
+    FundedNext status, evaluates deterministically, gathers contextual
+    evidence (Stage 10), then enriches with an LLM explanation. Raises
+    market_data.MarketDataError exactly like /api/setup/current does — the
+    route maps it to a 503, never a crash."""
     candles = market_data.get_all_candles(300)
 
     settings = settings_store.get_settings()
@@ -242,4 +315,5 @@ def evaluate_current_setup() -> StrategyEvaluationOut:
     )
 
     result = evaluate_deterministic(candles, fn_status)
-    return attach_llm_explanation(result)
+    evidence = evidence_builder.build_contextual_evidence(result)
+    return attach_llm_explanation(result, evidence)
