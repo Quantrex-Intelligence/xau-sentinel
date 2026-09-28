@@ -14,6 +14,9 @@ formatting. No tool here writes, places, closes, or modifies anything.
 """
 from ai.tools import registry
 from ai.tools.executor import execute
-from ai.tools import market_tools, risk_tools, journal_tools, knowledge_tools, memory_tools, similarity_tools  # noqa: F401  (populates registry.TOOL_SPECS)
+from ai.tools import (  # noqa: F401  (populates registry.TOOL_SPECS)
+    market_tools, risk_tools, journal_tools, knowledge_tools, memory_tools, similarity_tools,
+    market_intelligence_tools,
+)
 
 __all__ = ["registry", "execute"]

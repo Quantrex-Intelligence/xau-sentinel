@@ -251,3 +251,42 @@ def test_rag_memory_tools_and_similarity_work_together_in_one_turn(monkeypatch, 
     assert len(result.knowledge_used) > 0
     assert len(result.memory_used) > 0
     assert set(result.context_used) == {"Market Structure", "Setup", "FundedNext Risk"}
+
+
+def test_market_intelligence_tool_works_alongside_every_other_evidence_source(monkeypatch, temp_db):
+    """Stage 9 integration: get_macro_context (new) contributes alongside
+    RAG, memory, and a market tool in one turn without interfering with any
+    of their reporting."""
+    from ai.knowledge import store as knowledge_store
+    from ai.memory import store as memory_store
+    from ai.memory.models import MemoryCategory
+
+    knowledge_store.init_table()
+    knowledge_store.add_document(
+        "test/strategy.md", "strategy_rules", "1.0", "Test Strategy Doc",
+        "The reward to risk ratio must be at least three to one for an A+ rating.",
+    )
+    memory_store.init_table()
+    memory_store.create_memory(
+        MemoryCategory.TRADE_LESSON, "User repeatedly enters too early before the retracement completes.",
+    )
+
+    provider = _ScriptedProvider([
+        _tool_use_response(
+            ToolCall(id="c1", name="get_current_setup", arguments={}),
+            ToolCall(id="c2", name="get_macro_context", arguments={}),
+        ),
+        _text_response("Combined answer using market intelligence alongside everything else."),
+    ])
+    _use_provider(monkeypatch, provider)
+
+    result = assistant.chat(
+        "why do I enter too early, and what reward to risk ratio does the strategy require?"
+    )
+
+    assert result.answer == "Combined answer using market intelligence alongside everything else."
+    tool_names = {t.name for t in result.tools_used}
+    assert tool_names == {"get_current_setup", "get_macro_context"}
+    assert len(result.knowledge_used) > 0
+    assert len(result.memory_used) > 0
+    assert set(result.context_used) == {"Market Structure", "Setup", "FundedNext Risk"}

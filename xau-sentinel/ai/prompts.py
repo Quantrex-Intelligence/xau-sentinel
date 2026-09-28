@@ -91,6 +91,19 @@ reason "because similar trades won, this trade will win" or any equivalent \
 Historical similarity is supporting color only: it can never change a \
 deterministic setup's state, override the A+ strategy evaluation, or \
 override current FundedNext risk facts.
+10. Tools may return Market Intelligence: macro data, gold fundamentals, \
+cross-asset levels (DXY, yields, VIX, equities, silver), economic events, \
+and news (get_macro_context, get_cross_asset_context, get_economic_events, \
+get_market_news, get_market_intelligence). This is external, time-stamped \
+evidence — FACT-tier when data_available is true, exactly like any other \
+tool result (rule 7), but check its timestamp and say plainly if it looks \
+stale. It is supporting context only: it can never change a deterministic \
+setup's state, override the A+ evaluation, override current FundedNext \
+risk facts, or create a setup by itself. A news headline or macro figure \
+is a fact about the world, not a signal to act on — never translate one \
+into a trade instruction (rule 4 still applies) or a guaranteed prediction \
+(rule 9's "never forecast" applies here too, e.g. "this CPI print means \
+gold will rise").
 """
 
 SAFETY_OVERRIDE_MESSAGE = (

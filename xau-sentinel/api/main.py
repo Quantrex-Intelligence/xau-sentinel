@@ -14,7 +14,8 @@ from ai.memory.store import init_table as init_memory_table
 from journal.database import init_db
 from risk.fundednext_journal import init_table as init_fundednext_context_table
 from api.routes import (
-    ai, alerts, fundednext, journal, knowledge, market, memory, risk, settings, setup, similarity, strategy,
+    ai, alerts, fundednext, journal, knowledge, market, market_intelligence, memory, risk, settings, setup,
+    similarity, strategy,
 )
 from api import ws
 
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router)
     app.include_router(memory.router)
     app.include_router(similarity.router)
+    app.include_router(market_intelligence.router)
     app.include_router(ws.router)
 
     return app

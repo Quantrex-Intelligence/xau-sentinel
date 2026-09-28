@@ -505,3 +505,81 @@ export interface StrategyEvaluation {
   llm_model: string | null;
   llm_error: string | null;
 }
+
+/** Mirrors ai/market_intelligence/schemas.py (Stage 9) — macro, gold
+ * fundamentals, cross-asset, economic events, and news, all external and
+ * time-stamped. Never authoritative over the deterministic engine, the A+
+ * evaluation, or FundedNext risk facts. */
+export interface MacroSnapshot {
+  data_available: boolean;
+  source: string;
+  generated_at: string | null;
+  fed_funds_rate: number | null;
+  cpi_yoy: number | null;
+  core_cpi_yoy: number | null;
+  unemployment_rate: number | null;
+  gdp_growth_yoy: number | null;
+  us10y_yield: number | null;
+  us2y_yield: number | null;
+  reason: string | null;
+}
+
+export interface GoldFundamentals {
+  data_available: boolean;
+  source: string;
+  generated_at: string | null;
+  usd_strength_bias: string | null;
+  real_yield_10y: number | null;
+  central_bank_demand_trend: string | null;
+  etf_flows_trend: string | null;
+  reason: string | null;
+}
+
+export interface CrossAssetSnapshot {
+  data_available: boolean;
+  source: string;
+  generated_at: string | null;
+  dxy: number | null;
+  us2y_yield: number | null;
+  us10y_yield: number | null;
+  real_yield_10y: number | null;
+  vix: number | null;
+  equity_index: number | null;
+  silver_price: number | null;
+  reason: string | null;
+}
+
+export interface EconomicEvent {
+  name: string;
+  category: string;
+  importance: string;
+  scheduled_at: string;
+  source: string;
+  actual: string | null;
+  forecast: string | null;
+  previous: string | null;
+}
+
+export interface NewsArticle {
+  id: string;
+  headline: string;
+  source: string;
+  published_at: string;
+  retrieved_at: string;
+  url: string | null;
+  category: string | null;
+  importance: string | null;
+  assets: string[];
+  summary: string | null;
+}
+
+export interface MarketIntelligenceContext {
+  data_available: boolean;
+  generated_at: string;
+  macro: MacroSnapshot | null;
+  gold_fundamentals: GoldFundamentals | null;
+  cross_asset: CrossAssetSnapshot | null;
+  events: EconomicEvent[];
+  news: NewsArticle[];
+  sources: string[];
+}

@@ -16,6 +16,7 @@ import type {
   FundedNextStatus,
   KnowledgeDocument,
   Liquidity,
+  MarketIntelligenceContext,
   MarketSnapshot,
   MemoryCreateInput,
   MemoryRecord,
@@ -127,4 +128,6 @@ export const api = {
 
   similarityCurrent: () => request<SimilarityResult>("/api/similarity/current"),
   similarityForTrade: (tradeId: number) => request<SimilarityResult>(`/api/similarity/trade/${tradeId}`),
+
+  marketIntelligence: () => request<MarketIntelligenceContext>("/api/market-intelligence"),
 };

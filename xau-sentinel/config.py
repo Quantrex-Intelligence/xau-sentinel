@@ -138,5 +138,22 @@ AI_SIMILARITY_RR_TOLERANCE = float(os.getenv("AI_SIMILARITY_RR_TOLERANCE", 3.0))
 AI_SIMILARITY_DEFAULT_TOP_K = int(os.getenv("AI_SIMILARITY_DEFAULT_TOP_K", 5))
 AI_SIMILARITY_DEFAULT_MIN_SIMILARITY = float(os.getenv("AI_SIMILARITY_DEFAULT_MIN_SIMILARITY", 0.5))
 
+
+# --- Stage 9: Market Intelligence Layer ---
+# One provider setting per category, each keyed the same way AI_PROVIDER/
+# AI_EMBEDDING_PROVIDER already are — "mock" is the only backend that
+# exists today; a real provider plugs in later under the same name without
+# touching ai/market_intelligence/context.py, the tools, or the assistant.
+MARKET_INTEL_MACRO_PROVIDER = os.getenv("MARKET_INTEL_MACRO_PROVIDER", "mock").strip().lower()
+MARKET_INTEL_CROSS_ASSET_PROVIDER = os.getenv("MARKET_INTEL_CROSS_ASSET_PROVIDER", "mock").strip().lower()
+MARKET_INTEL_EVENTS_PROVIDER = os.getenv("MARKET_INTEL_EVENTS_PROVIDER", "mock").strip().lower()
+MARKET_INTEL_NEWS_PROVIDER = os.getenv("MARKET_INTEL_NEWS_PROVIDER", "mock").strip().lower()
+# News older than this is filtered out at context-assembly time — "do not
+# store every article indefinitely."
+MARKET_INTEL_NEWS_MAX_AGE_HOURS = float(os.getenv("MARKET_INTEL_NEWS_MAX_AGE_HOURS", 48))
+MARKET_INTEL_NEWS_DEFAULT_LIMIT = int(os.getenv("MARKET_INTEL_NEWS_DEFAULT_LIMIT", 10))
+MARKET_INTEL_EVENTS_DAYS_AHEAD = int(os.getenv("MARKET_INTEL_EVENTS_DAYS_AHEAD", 7))
+MARKET_INTEL_EVENTS_DAYS_BACK = int(os.getenv("MARKET_INTEL_EVENTS_DAYS_BACK", 1))
+
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"

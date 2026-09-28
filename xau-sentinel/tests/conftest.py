@@ -91,6 +91,14 @@ def _default_thresholds(monkeypatch):
     monkeypatch.setattr(config, "AI_SIMILARITY_RR_TOLERANCE", 3.0)
     monkeypatch.setattr(config, "AI_SIMILARITY_DEFAULT_TOP_K", 5)
     monkeypatch.setattr(config, "AI_SIMILARITY_DEFAULT_MIN_SIMILARITY", 0.5)
+    monkeypatch.setattr(config, "MARKET_INTEL_MACRO_PROVIDER", "mock")
+    monkeypatch.setattr(config, "MARKET_INTEL_CROSS_ASSET_PROVIDER", "mock")
+    monkeypatch.setattr(config, "MARKET_INTEL_EVENTS_PROVIDER", "mock")
+    monkeypatch.setattr(config, "MARKET_INTEL_NEWS_PROVIDER", "mock")
+    monkeypatch.setattr(config, "MARKET_INTEL_NEWS_MAX_AGE_HOURS", 48.0)
+    monkeypatch.setattr(config, "MARKET_INTEL_NEWS_DEFAULT_LIMIT", 10)
+    monkeypatch.setattr(config, "MARKET_INTEL_EVENTS_DAYS_AHEAD", 7)
+    monkeypatch.setattr(config, "MARKET_INTEL_EVENTS_DAYS_BACK", 1)
 
 
 @pytest.fixture

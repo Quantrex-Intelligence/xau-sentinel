@@ -6,6 +6,7 @@ import { Panel } from "@/components/layout/panel";
 import { ChatMessage, type ChatTurn } from "@/components/ai/chat-message";
 import { SuggestedQuestions } from "@/components/ai/suggested-questions";
 import { MemoryPanel } from "@/components/ai/memory-panel";
+import { MarketIntelligencePanel } from "@/components/market-intelligence/market-intelligence-panel";
 import { api, ApiError } from "@/lib/api";
 import type { AiConfig } from "@/lib/types";
 
@@ -123,6 +124,7 @@ function AssistantPageInner() {
       <SuggestedQuestions onSelect={(q, scope) => send(q, scope)} disabled={loading} />
 
       <MemoryPanel prefill={memoryPrefill} onPrefillConsumed={() => setMemoryPrefill(undefined)} />
+      <MarketIntelligencePanel />
 
       <div className="flex-1 overflow-y-auto rounded-md border border-border bg-card p-4 flex flex-col gap-3">
         {turns.length === 0 && (
