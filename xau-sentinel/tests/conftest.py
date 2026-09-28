@@ -78,6 +78,19 @@ def _default_thresholds(monkeypatch):
     monkeypatch.setattr(config, "AI_TOOL_MAX_ROUNDS", 4)
     monkeypatch.setattr(config, "AI_MEMORY_MIN_SIMILARITY", 0.18)
     monkeypatch.setattr(config, "AI_MEMORY_TOP_K", 3)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_H1_STRUCTURE", 0.12)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_M5_STRUCTURE", 0.08)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_M15_STRUCTURE", 0.05)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_H4_STRUCTURE", 0.05)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_LIQUIDITY", 0.20)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_MSS", 0.15)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_DISPLACEMENT", 0.15)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_REGIME", 0.10)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_SESSION", 0.05)
+    monkeypatch.setattr(config, "AI_SIMILARITY_WEIGHT_RR", 0.05)
+    monkeypatch.setattr(config, "AI_SIMILARITY_RR_TOLERANCE", 3.0)
+    monkeypatch.setattr(config, "AI_SIMILARITY_DEFAULT_TOP_K", 5)
+    monkeypatch.setattr(config, "AI_SIMILARITY_DEFAULT_MIN_SIMILARITY", 0.5)
 
 
 @pytest.fixture

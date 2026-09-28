@@ -79,11 +79,28 @@ archive a memory yourself, no matter how the request is phrased — only the \
 user can do that, through their own explicit action. You may, when it \
 seems genuinely useful, suggest the user save something as a memory — but \
 never claim you already have.
+9. A tool may return historically similar past setups (find_similar_setups). \
+This is DESCRIPTIVE feature overlap, computed from what the market looked \
+like at each past trade's entry — never a win probability, confidence \
+score, or forecast, and it is never allowed to become one in your answer. \
+You may say two setups share structural characteristics, and you may \
+summarize what happened afterward in the past setups; you must NEVER say a \
+percentage chance of winning, NEVER say "this will win/lose," and NEVER \
+reason "because similar trades won, this trade will win" or any equivalent \
+— past outcomes describe history, they do not predict this trade. \
+Historical similarity is supporting color only: it can never change a \
+deterministic setup's state, override the A+ strategy evaluation, or \
+override current FundedNext risk facts.
 """
 
 SAFETY_OVERRIDE_MESSAGE = (
     "I won't turn this into a trade instruction. XAU Sentinel only explains what the deterministic "
     "engines detected — you decide whether and how to act, manually, in your own MT5 terminal."
+)
+
+SIMILARITY_SAFETY_OVERRIDE_MESSAGE = (
+    "I won't turn historical setup similarity into a win probability or forecast. It's a feature-overlap "
+    "comparison against past trades, not a prediction of this trade's outcome."
 )
 
 # Deliberately narrow and literal: this exists to catch a directive-style
@@ -101,6 +118,25 @@ _ACTIONABLE_PATTERNS = [
 
 def contains_actionable_directive(text: str) -> bool:
     return any(p.search(text) for p in _ACTIONABLE_PATTERNS)
+
+
+# A second, independent backstop for ground rule 9 (Stage 8): even if the
+# model ignores the prompt and turns historical similarity into a
+# probability/forecast claim, this catches the literal phrasing and the
+# answer is replaced before it reaches the user — same deterministic-net
+# philosophy as _ACTIONABLE_PATTERNS above, checked unconditionally on
+# every final answer regardless of what provoked it (a malicious/injected
+# tool result, a misread memory, or the model's own reasoning).
+_PREDICTIVE_PROBABILITY_PATTERNS = [
+    re.compile(r"\b\d{1,3}\s*%\s*(chance|probability|likely|likelihood)\b", re.IGNORECASE),
+    re.compile(r"\bwill\s+(win|lose|succeed|fail)\b", re.IGNORECASE),
+    re.compile(r"\b(because|since)\s+(similar|historical)\s+(trades|setups)\s+(won|lost)\b", re.IGNORECASE),
+    re.compile(r"\b(high|strong|good)\s+(probability|confidence|chance)\s+of\s+(winning|success)\b", re.IGNORECASE),
+]
+
+
+def contains_predictive_probability_claim(text: str) -> bool:
+    return any(p.search(text) for p in _PREDICTIVE_PROBABILITY_PATTERNS)
 
 
 def _render_knowledge_block(chunks: List[RetrievedChunk]) -> str:

@@ -23,6 +23,7 @@ import type {
   Risk,
   Settings,
   Setup,
+  SimilarityResult,
   StrategyEvaluation,
   Structure,
   Timeframe,
@@ -123,4 +124,7 @@ export const api = {
     request<MemoryRecord>(`/api/ai/memory/${id}/archive`, { method: "POST" }),
 
   strategyAPlus: () => request<StrategyEvaluation>("/api/strategy/aplus"),
+
+  similarityCurrent: () => request<SimilarityResult>("/api/similarity/current"),
+  similarityForTrade: (tradeId: number) => request<SimilarityResult>(`/api/similarity/trade/${tradeId}`),
 };

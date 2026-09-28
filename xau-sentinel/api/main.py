@@ -13,7 +13,9 @@ from ai.knowledge.store import init_table as init_knowledge_tables
 from ai.memory.store import init_table as init_memory_table
 from journal.database import init_db
 from risk.fundednext_journal import init_table as init_fundednext_context_table
-from api.routes import ai, alerts, fundednext, journal, knowledge, market, memory, risk, settings, setup, strategy
+from api.routes import (
+    ai, alerts, fundednext, journal, knowledge, market, memory, risk, settings, setup, similarity, strategy,
+)
 from api import ws
 
 DEFAULT_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
@@ -55,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(strategy.router)
     app.include_router(knowledge.router)
     app.include_router(memory.router)
+    app.include_router(similarity.router)
     app.include_router(ws.router)
 
     return app

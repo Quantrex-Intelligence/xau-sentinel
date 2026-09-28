@@ -3,6 +3,7 @@
 import { useMarket } from "@/lib/market-context";
 import { SetupPanel } from "@/components/setup/setup-panel";
 import { AplusPanel } from "@/components/strategy/a-plus-panel";
+import { HistoricalSimilarityPanel } from "@/components/similarity/historical-similarity-panel";
 import { RiskPanel } from "@/components/risk/risk-panel";
 import { AlertCenter } from "@/components/alerts/alert-center";
 import { Panel } from "@/components/layout/panel";
@@ -20,6 +21,7 @@ export default function SetupsPage() {
       <div className="lg:col-span-2 flex flex-col gap-4">
         <SetupPanel setup={snapshot?.setup ?? null} />
         <AplusPanel />
+        <HistoricalSimilarityPanel />
 
         <Panel title="Multi-Timeframe Context">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

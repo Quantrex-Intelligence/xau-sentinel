@@ -396,6 +396,49 @@ export interface MemoryUsage {
   updated_at: string;
 }
 
+/** Mirrors ai/similarity/schemas.py (Stage 8) — deterministic, weighted
+ * FEATURE similarity against historical journal trades. Never a win
+ * probability or confidence score — no such field exists anywhere here. */
+export interface SetupFeatures {
+  direction: string | null;
+  h4_structure: string | null;
+  h1_structure: string | null;
+  m15_structure: string | null;
+  m5_structure: string | null;
+  regime: string | null;
+  liquidity_kind: string | null;
+  mss_direction: string | null;
+  displacement: string | null;
+  session: string | null;
+  planned_rr: number | null;
+}
+
+export interface SimilarityOutcome {
+  status: "OPEN" | "CLOSED";
+  result: "WIN" | "LOSS" | "BE" | null;
+  r_multiple: number | null;
+  pnl: number | null;
+  duration_minutes: number | null;
+  entry_date: string | null;
+  entry_time: string | null;
+}
+
+export interface SimilarSetup {
+  trade_id: number;
+  similarity: number;
+  entry_snapshot: SetupFeatures;
+  outcome: SimilarityOutcome;
+  matched_features: string[];
+  different_features: string[];
+}
+
+export interface SimilarityResult {
+  query_features: SetupFeatures;
+  matches: SimilarSetup[];
+  considered_count: number;
+  excluded_count: number;
+}
+
 export interface ChatResponse {
   answer: string;
   conversation_id: string;

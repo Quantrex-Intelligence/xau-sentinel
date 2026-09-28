@@ -4,6 +4,7 @@ e2e/test_migration_checklist.py for how to start them). Run directly:
     python e2e/test_trading_memory_checklist.py
 """
 import sys
+import time
 
 import httpx
 from playwright.sync_api import sync_playwright
@@ -95,7 +96,11 @@ def main() -> int:
         except Exception:
             check("UI: memory panel expands to show the add-memory form", False)
 
-        ui_memory_text = "E2E UI: user prefers trading only the London session."
+        # Unique per run (not a fixed literal) so repeated runs never leave
+        # behind multiple identical records that later make get_by_text
+        # ambiguous (Playwright's strict mode throws on >1 match) — the
+        # exact "test-data accumulation" trap documented in project memory.
+        ui_memory_text = f"E2E UI: user prefers trading only the London session ({time.time():.0f})."
         page.fill("textarea[placeholder*='Describe the preference']", ui_memory_text)
         page.get_by_role("button", name="Save to memory").click()
         try:
@@ -126,6 +131,15 @@ def main() -> int:
         check("UI: no failed network requests", len(failed_requests) == 0, str(failed_requests))
 
         browser.close()
+
+    # Cleanup: archive the UI-created record too, so repeated runs never
+    # accumulate live rows (the unique suffix above already prevents THIS
+    # run's row from colliding with a past one, but leaving it ACTIVE would
+    # still grow the memory panel's list indefinitely across runs).
+    ui_created = [m for m in httpx.get(f"{API_BASE}/api/ai/memory", timeout=10).json()
+                  if m["content"] == ui_memory_text]
+    for m in ui_created:
+        httpx.post(f"{API_BASE}/api/ai/memory/{m['id']}/archive", timeout=10)
 
     total = len(results)
     passed = sum(1 for _, ok, _ in results if ok)

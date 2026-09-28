@@ -212,3 +212,42 @@ def test_mock_provider_scripted_tool_calls_drive_a_deterministic_sequence(monkey
     assert len(result.tools_used) == 1
     assert result.tools_used[0].name == "get_risk_status"
     assert "MOCK PROVIDER" in result.answer
+
+
+def test_rag_memory_tools_and_similarity_work_together_in_one_turn(monkeypatch, temp_db):
+    """Stage 8 integration: RAG (Stage 5), memory (Stage 7), a market tool
+    (Stage 6), and find_similar_setups (Stage 8) can all contribute to a
+    single turn without interfering with each other's reporting."""
+    from ai.knowledge import store as knowledge_store
+    from ai.memory import store as memory_store
+    from ai.memory.models import MemoryCategory
+
+    knowledge_store.init_table()
+    knowledge_store.add_document(
+        "test/strategy.md", "strategy_rules", "1.0", "Test Strategy Doc",
+        "The reward to risk ratio must be at least three to one for an A+ rating.",
+    )
+    memory_store.init_table()
+    memory_store.create_memory(
+        MemoryCategory.TRADE_LESSON, "User repeatedly enters too early before the retracement completes.",
+    )
+
+    provider = _ScriptedProvider([
+        _tool_use_response(
+            ToolCall(id="c1", name="get_current_setup", arguments={}),
+            ToolCall(id="c2", name="find_similar_setups", arguments={"min_similarity": 0.0}),
+        ),
+        _text_response("Combined answer using tools, RAG, and memory."),
+    ])
+    _use_provider(monkeypatch, provider)
+
+    result = assistant.chat(
+        "why do I enter too early, and what reward to risk ratio does the strategy require?"
+    )
+
+    assert result.answer == "Combined answer using tools, RAG, and memory."
+    tool_names = {t.name for t in result.tools_used}
+    assert tool_names == {"get_current_setup", "find_similar_setups"}
+    assert len(result.knowledge_used) > 0
+    assert len(result.memory_used) > 0
+    assert set(result.context_used) == {"Market Structure", "Setup", "FundedNext Risk"}

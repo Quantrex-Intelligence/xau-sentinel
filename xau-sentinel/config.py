@@ -114,5 +114,29 @@ AI_TOOL_MAX_ROUNDS = int(os.getenv("AI_TOOL_MAX_ROUNDS", 4))
 AI_MEMORY_MIN_SIMILARITY = float(os.getenv("AI_MEMORY_MIN_SIMILARITY", 0.18))
 AI_MEMORY_TOP_K = int(os.getenv("AI_MEMORY_TOP_K", 3))
 
+
+# --- Stage 8: Historical Setup Similarity ---
+# An explicit, documented weighted-feature heuristic (see ai/similarity/
+# scoring.py) — NOT statistically derived or tuned against outcomes. H1 is
+# weighted highest among the four structure timeframes because the
+# project's own seeded knowledge doc already treats it as the primary
+# signal (see ai/knowledge/seed_documents.py). Sums to 1.0; feel free to
+# retune, but retuning does not make these "correct" weights, only
+# different ones.
+AI_SIMILARITY_WEIGHT_H1_STRUCTURE = float(os.getenv("AI_SIMILARITY_WEIGHT_H1_STRUCTURE", 0.12))
+AI_SIMILARITY_WEIGHT_M5_STRUCTURE = float(os.getenv("AI_SIMILARITY_WEIGHT_M5_STRUCTURE", 0.08))
+AI_SIMILARITY_WEIGHT_M15_STRUCTURE = float(os.getenv("AI_SIMILARITY_WEIGHT_M15_STRUCTURE", 0.05))
+AI_SIMILARITY_WEIGHT_H4_STRUCTURE = float(os.getenv("AI_SIMILARITY_WEIGHT_H4_STRUCTURE", 0.05))
+AI_SIMILARITY_WEIGHT_LIQUIDITY = float(os.getenv("AI_SIMILARITY_WEIGHT_LIQUIDITY", 0.20))
+AI_SIMILARITY_WEIGHT_MSS = float(os.getenv("AI_SIMILARITY_WEIGHT_MSS", 0.15))
+AI_SIMILARITY_WEIGHT_DISPLACEMENT = float(os.getenv("AI_SIMILARITY_WEIGHT_DISPLACEMENT", 0.15))
+AI_SIMILARITY_WEIGHT_REGIME = float(os.getenv("AI_SIMILARITY_WEIGHT_REGIME", 0.10))
+AI_SIMILARITY_WEIGHT_SESSION = float(os.getenv("AI_SIMILARITY_WEIGHT_SESSION", 0.05))
+AI_SIMILARITY_WEIGHT_RR = float(os.getenv("AI_SIMILARITY_WEIGHT_RR", 0.05))
+# R:R difference (in R units) that maps to 0 similarity for that one feature.
+AI_SIMILARITY_RR_TOLERANCE = float(os.getenv("AI_SIMILARITY_RR_TOLERANCE", 3.0))
+AI_SIMILARITY_DEFAULT_TOP_K = int(os.getenv("AI_SIMILARITY_DEFAULT_TOP_K", 5))
+AI_SIMILARITY_DEFAULT_MIN_SIMILARITY = float(os.getenv("AI_SIMILARITY_DEFAULT_MIN_SIMILARITY", 0.5))
+
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"

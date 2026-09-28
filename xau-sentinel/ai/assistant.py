@@ -109,6 +109,9 @@ def chat(message: str, conversation_id: Optional[str] = None,
     if prompts.contains_actionable_directive(answer_text):
         answer_text = prompts.SAFETY_OVERRIDE_MESSAGE
         overall_category = AnswerCategory.UNKNOWN
+    elif prompts.contains_predictive_probability_claim(answer_text):
+        answer_text = prompts.SIMILARITY_SAFETY_OVERRIDE_MESSAGE
+        overall_category = AnswerCategory.UNKNOWN
     elif not assembled.used_labels:
         # Nothing was available to ground the answer in — it can only be
         # framed as INTERPRETATION-of-nothing, which is really UNKNOWN.
