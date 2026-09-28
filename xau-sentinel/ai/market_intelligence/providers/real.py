@@ -31,16 +31,12 @@ from ai.market_intelligence.providers.base import (
     BaseCrossAssetProvider, BaseEventsProvider, BaseMacroProvider, BaseNewsProvider,
 )
 from ai.market_intelligence.providers.timeutil import parse_timestamp
+from ai.market_intelligence.quality import classify_news_relevance
 
 _FRED_BASE = "https://api.stlouisfed.org/fred"
 _YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 _FED_RSS = "https://www.federalreserve.gov/feeds/press_monetary.xml"
 _MARKETWATCH_RSS = "https://feeds.content.dowjones.io/public/rss/mw_topstories"
-
-_RELEVANCE_KEYWORDS = [
-    "gold", "fed", "federal reserve", "fomc", "inflation", "cpi", "treasury", "yield",
-    "dollar", "interest rate", "employment", "jobs report", "unemployment", "gdp", "ppi", "powell",
-]
 
 _TRACKED_EVENT_SERIES = [
     # (series_id, name, category, importance, fred `units` param)
@@ -284,6 +280,7 @@ class RealEventsProvider(BaseEventsProvider):
                 actual=_format_units(actual_value, units),
                 forecast=None,  # FRED has no consensus-forecast data — never invented
                 previous=_format_units(previous_value, units),
+                country="US",  # every currently tracked FRED series is a US release
             ))
 
         events.extend(self._upcoming_release_dates(now, days_ahead))
@@ -327,7 +324,7 @@ class RealEventsProvider(BaseEventsProvider):
             events.append(EconomicEvent(
                 name=name, category=category, importance=importance,
                 scheduled_at=scheduled_at.isoformat(), source=self.name,
-                actual=None, forecast=None, previous=None,
+                actual=None, forecast=None, previous=None, country="US",
             ))
         return events
 
@@ -364,8 +361,7 @@ class RealNewsProvider(BaseNewsProvider):
 
     @staticmethod
     def _is_relevant(raw: dict) -> bool:
-        haystack = f"{raw.get('headline') or ''} {raw.get('summary') or ''}".lower()
-        return any(kw in haystack for kw in _RELEVANCE_KEYWORDS)
+        return classify_news_relevance(raw.get("headline"), raw.get("summary")) == "RELEVANT"
 
     @staticmethod
     def _to_article(raw: dict, category: str, importance: str, assets: List[str]) -> NewsArticle:

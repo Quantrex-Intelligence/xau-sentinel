@@ -10,7 +10,8 @@ from ai.market_intelligence import context as mi_context
 from ai.market_intelligence.providers.cross_asset import get_cross_asset_provider
 from ai.market_intelligence.providers.events import get_events_provider
 from ai.market_intelligence.providers.macro import get_macro_provider
-from ai.market_intelligence.providers.news import dedupe_articles, get_news_provider
+from ai.market_intelligence.providers.news import get_news_provider
+from ai.market_intelligence.quality import assess_news_quality, build_intelligence_summary
 from ai.tools.registry import ToolSpec, register
 from ai.tools.schemas import ToolResult
 
@@ -61,12 +62,17 @@ def get_economic_events(args: dict) -> ToolResult:
 
 
 def get_market_news(args: dict) -> ToolResult:
+    """Stage 12: filters through the same
+    ai.market_intelligence.quality.assess_news_quality() as
+    ai/market_intelligence/context.py::_get_news() — previously this tool
+    deduped but never applied the staleness cutoff, so a stale article
+    could reach the LLM tool loop unfiltered even though the aggregate
+    /api/market-intelligence path already excluded it."""
     limit = args.get("limit", config.MARKET_INTEL_NEWS_DEFAULT_LIMIT)
     max_age_hours = args.get("max_age_hours", config.MARKET_INTEL_NEWS_MAX_AGE_HOURS)
     try:
-        articles = dedupe_articles(
-            get_news_provider().get_recent_news(limit=limit, max_age_hours=max_age_hours)
-        )[:limit]
+        raw = get_news_provider().get_recent_news(limit=limit, max_age_hours=max_age_hours)
+        articles = [q.article for q in assess_news_quality(raw, max_age_hours=max_age_hours)][:limit]
     except Exception as exc:  # noqa: BLE001
         return ToolResult(data_available=False, reason=str(exc), source="ai.market_intelligence")
     return ToolResult(
@@ -77,6 +83,7 @@ def get_market_news(args: dict) -> ToolResult:
 
 def get_market_intelligence(_args: dict) -> ToolResult:
     ctx = mi_context.build_market_intelligence_context()
+    summary = build_intelligence_summary(ctx)
     return ToolResult(
         data_available=ctx.data_available, timestamp=ctx.generated_at, source="ai.market_intelligence",
         data={
@@ -86,6 +93,7 @@ def get_market_intelligence(_args: dict) -> ToolResult:
             "events": [asdict(e) for e in ctx.events],
             "news": [asdict(n) for n in ctx.news],
             "sources": ctx.sources,
+            "quality_summary": asdict(summary),
         },
     )
 

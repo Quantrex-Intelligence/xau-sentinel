@@ -83,8 +83,8 @@ def test_get_news_filters_out_articles_older_than_max_age_hours(monkeypatch):
 
 def test_get_news_dedupes_across_the_staleness_filter(monkeypatch):
     now = datetime.now(timezone.utc)
-    first = _article(id="1", headline="Same story", published_at=now.isoformat())
-    dup = _article(id="2", headline="Same story", published_at=now.isoformat())
+    first = _article(id="1", headline="Gold rallies on Fed guidance", published_at=now.isoformat())
+    dup = _article(id="2", headline="Gold rallies on Fed guidance", published_at=now.isoformat())
 
     class _FakeProvider:
         def get_recent_news(self, limit, max_age_hours):
@@ -95,3 +95,21 @@ def test_get_news_dedupes_across_the_staleness_filter(monkeypatch):
 
     result = _get_news(limit=10, max_age_hours=48)
     assert len(result) == 1
+
+
+def test_get_news_excludes_articles_not_relevant_to_xauusd(monkeypatch):
+    now = datetime.now(timezone.utc)
+    relevant = _article(id="1", headline="Gold steadies as traders await Fed guidance", published_at=now.isoformat())
+    irrelevant = _article(id="2", headline="Apple releases new iPhone color", published_at=now.isoformat())
+
+    class _FakeProvider:
+        def get_recent_news(self, limit, max_age_hours):
+            return [relevant, irrelevant]
+
+    import ai.market_intelligence.context as context_mod
+    monkeypatch.setattr(context_mod, "get_news_provider", lambda: _FakeProvider())
+
+    result = _get_news(limit=10, max_age_hours=48)
+    ids = {a.id for a in result}
+    assert "1" in ids
+    assert "2" not in ids

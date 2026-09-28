@@ -112,6 +112,7 @@ class MockEventsProvider(BaseEventsProvider):
                 forecast=f"{forecast}%",
                 actual=f"{round(forecast + float(rng.normal(0, 0.2)), 1)}%" if is_past else None,
                 previous=f"{round(forecast - float(rng.normal(0, 0.2)), 1)}%",
+                country="US",
             ))
         return sorted(events, key=lambda e: e.scheduled_at)
 

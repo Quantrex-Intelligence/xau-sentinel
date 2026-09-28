@@ -62,6 +62,38 @@ def test_rating_and_deterministic_rating_never_change_regardless_of_llm_reply(mo
     assert enriched.contextual_analysis.deterministic_rating == Rating.DEVELOPING
 
 
+def test_deterministic_rating_unchanged_by_strongly_bullish_market_intelligence(monkeypatch):
+    """Stage 12's explicit A+ Interaction regression guard: Market
+    Intelligence is supporting evidence only. Bullish-sounding real news/
+    events must never upgrade a DEVELOPING setup to A+, override an
+    INVALID setup, or otherwise move the rating — even when the LLM's own
+    interpretation reply also sounds bullish."""
+    from ai.market_intelligence.models import EconomicEvent, MacroSnapshot, MarketIntelligenceContext, NewsArticle
+
+    result = _result(rating=Rating.DEVELOPING, missing_conditions=["Retracement"])
+    bullish_mi = MarketIntelligenceContext(
+        data_available=True, generated_at="2026-01-01T00:00:00+00:00",
+        macro=MacroSnapshot(data_available=True, source="real", generated_at="2026-01-01T00:00:00+00:00",
+                             fed_funds_rate=5.25, cpi_yoy=3.0, us10y_yield=4.2, freshness="LIVE"),
+        events=[EconomicEvent(name="Fed signals dovish pivot", category="Central Bank", importance="HIGH",
+                               scheduled_at="2026-01-01T00:00:00+00:00", source="real", country="US")],
+        news=[NewsArticle(id="1", headline="Gold surges to record high on Fed dovish pivot", source="wire",
+                           published_at="2026-01-01T00:00:00+00:00", retrieved_at="2026-01-01T00:00:00+00:00")],
+        sources=["real"],
+    )
+    evidence = ContextualEvidence(market_intelligence=bullish_mi, market_intelligence_relevant=True)
+    monkeypatch.setattr(evaluator_mod, "get_provider",
+                         lambda: _RecordingProvider(reply="This looks extremely bullish for gold."))
+
+    enriched = attach_llm_explanation(result, evidence=evidence)
+
+    assert enriched.rating == Rating.DEVELOPING
+    assert enriched.contextual_analysis.rating == Rating.DEVELOPING
+    assert enriched.contextual_analysis.deterministic_rating == Rating.DEVELOPING
+    assert enriched.contextual_analysis.market_intelligence.relevant is True  # evidence WAS surfaced...
+    assert "Retracement" in enriched.contextual_analysis.uncertainties  # ...but never resolved the gap
+
+
 def test_contextual_analysis_rating_is_literally_copied_not_llm_generated():
     """Structural proof, not just behavioral: attach_llm_explanation never
     asks the LLM for a rating field at all (see _build_contextual_analysis),
@@ -166,4 +198,6 @@ def test_contextual_analysis_out_has_the_expected_shape(monkeypatch):
         "historical_context", "risk_context", "interpretation", "uncertainties",
         "llm_provider", "llm_model", "llm_error",
     }
-    assert set(dumped["market_intelligence"].keys()) == {"relevant", "macro", "events", "news", "cross_asset"}
+    assert set(dumped["market_intelligence"].keys()) == {
+        "relevant", "macro", "events", "news", "cross_asset", "freshness", "overall",
+    }

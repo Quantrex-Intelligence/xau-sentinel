@@ -10,7 +10,7 @@ analysis/, api.snapshot, or mt5.market_data. This is a separate evidence
 source, not a second copy of the deterministic engine (see Stage 9 spec's
 "do not duplicate Sentinel's technical engine output").
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import config
@@ -21,7 +21,8 @@ from ai.market_intelligence.models import (
 from ai.market_intelligence.providers.cross_asset import get_cross_asset_provider
 from ai.market_intelligence.providers.events import get_events_provider
 from ai.market_intelligence.providers.macro import get_macro_provider
-from ai.market_intelligence.providers.news import dedupe_articles, get_news_provider
+from ai.market_intelligence.providers.news import get_news_provider
+from ai.market_intelligence.quality import assess_news_quality
 
 
 def _now() -> datetime:
@@ -61,23 +62,18 @@ def _get_events(days_ahead: int, days_back: int) -> List[EconomicEvent]:
 
 
 def _get_news(limit: int, max_age_hours: float) -> List[NewsArticle]:
+    """Delegates staleness/plausibility/dedup/relevance filtering to
+    ai.market_intelligence.quality.assess_news_quality() (Stage 12) — the
+    same function ai/tools/market_intelligence_tools.py::get_market_news()
+    calls, so the two paths can never disagree about what counts as
+    "current, relevant news" again."""
     try:
         articles = get_news_provider().get_recent_news(limit=limit, max_age_hours=max_age_hours)
     except Exception:  # noqa: BLE001
         return []
 
-    cutoff = _now() - timedelta(hours=max_age_hours)
-    fresh = [a for a in articles if _parse_iso(a.published_at) is None or _parse_iso(a.published_at) >= cutoff]
-    return dedupe_articles(fresh)[:limit]
-
-
-def _parse_iso(value: Optional[str]) -> Optional[datetime]:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value)
-    except ValueError:
-        return None
+    kept = assess_news_quality(articles, _now(), max_age_hours)
+    return [q.article for q in kept][:limit]
 
 
 def build_market_intelligence_context(

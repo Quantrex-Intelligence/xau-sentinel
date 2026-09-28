@@ -72,6 +72,16 @@ def test_market_intelligence_not_relevant_when_none():
     assert evidence_mod._is_market_intelligence_relevant(None) is False
 
 
+def test_market_intelligence_not_relevant_with_only_irrelevant_news():
+    """Stage 12: a generic, non-gold-relevant headline must not make MI
+    'relevant' evidence just because an article exists."""
+    mi = _mi(events=[], news=[
+        NewsArticle(id="1", headline="Apple releases new iPhone color", source="wire",
+                    published_at="2026-01-01T00:00:00+00:00", retrieved_at="2026-01-01T00:00:00+00:00"),
+    ])
+    assert evidence_mod._is_market_intelligence_relevant(mi) is False
+
+
 # ---------------------------------------------------------------------------
 # build_contextual_evidence: independent degradation per source
 # ---------------------------------------------------------------------------
@@ -196,6 +206,18 @@ def test_market_intelligence_summary_populates_fields_when_relevant():
     assert "Gold steadies" in summary.news
 
 
+def test_market_intelligence_summary_includes_freshness_and_overall_state():
+    mi = _mi(events=[EconomicEvent(name="US CPI", category="Inflation", importance="HIGH",
+                                    scheduled_at="2026-01-02T00:00:00+00:00", source="mock")],
+              news=[NewsArticle(id="1", headline="Gold steadies", source="wire",
+                                 published_at="2026-01-01T00:00:00+00:00",
+                                 retrieved_at="2026-01-01T00:00:00+00:00")])
+    evidence = ContextualEvidence(market_intelligence=mi, market_intelligence_relevant=True)
+    summary = evidence_mod.market_intelligence_summary(evidence)
+    assert summary.freshness is not None
+    assert summary.overall in ("AVAILABLE", "PARTIALLY_AVAILABLE", "UNAVAILABLE")
+
+
 def test_historical_context_says_limited_when_no_matches():
     evidence = ContextualEvidence(similarity=SimilarityResult(matches=[]), similarity_relevant=False)
     text = evidence_mod.historical_context(evidence)
@@ -247,3 +269,66 @@ def test_render_for_llm_marks_market_intelligence_not_relevant_when_absent():
     text = evidence_mod.render_for_llm(evidence)
     assert "Market Intelligence: not materially relevant right now." in text
     assert "Historical similarity: limited" in text
+
+
+def test_render_for_llm_labels_macro_with_explicit_freshness_source_and_timestamp():
+    mi = MarketIntelligenceContext(
+        data_available=True, generated_at="2026-01-01T00:00:00+00:00",
+        macro=MacroSnapshot(data_available=True, source="real", generated_at="2026-01-01T00:00:00+00:00",
+                             fed_funds_rate=5.25, cpi_yoy=3.0, us10y_yield=4.2, freshness="LIVE"),
+        events=[EconomicEvent(name="US CPI", category="Inflation", importance="HIGH",
+                               scheduled_at="2026-01-02T00:00:00+00:00", source="real")],
+    )
+    evidence = ContextualEvidence(market_intelligence=mi, market_intelligence_relevant=True)
+    text = evidence_mod.render_for_llm(evidence)
+    assert "[LIVE, source=real, as of 2026-01-01T00:00:00+00:00]" in text
+
+
+def test_render_for_llm_explicitly_marks_stale_macro_as_not_current():
+    mi = MarketIntelligenceContext(
+        data_available=True, generated_at="2026-01-01T00:00:00+00:00",
+        macro=MacroSnapshot(data_available=True, source="real", generated_at="2026-01-01T00:00:00+00:00",
+                             fed_funds_rate=5.25, freshness="STALE"),
+        events=[EconomicEvent(name="US CPI", category="Inflation", importance="HIGH",
+                               scheduled_at="2026-01-02T00:00:00+00:00", source="real")],
+    )
+    evidence = ContextualEvidence(market_intelligence=mi, market_intelligence_relevant=True)
+    text = evidence_mod.render_for_llm(evidence)
+    assert "STALE, do not treat as current" in text
+
+
+def test_render_for_llm_includes_nearest_high_impact_event():
+    from datetime import datetime, timedelta, timezone
+    soon = (datetime.now(timezone.utc) + timedelta(minutes=42)).isoformat()
+    mi = MarketIntelligenceContext(
+        data_available=True, generated_at="2026-01-01T00:00:00+00:00",
+        events=[EconomicEvent(name="US CPI", category="Inflation", importance="HIGH",
+                               scheduled_at=soon, source="real")],
+    )
+    evidence = ContextualEvidence(market_intelligence=mi, market_intelligence_relevant=True)
+    text = evidence_mod.render_for_llm(evidence)
+    assert "Nearest high-impact event: US CPI in 42 minutes" in text
+
+
+def test_render_for_llm_includes_overall_availability_state():
+    mi = MarketIntelligenceContext(
+        data_available=True, generated_at="2026-01-01T00:00:00+00:00",
+        events=[EconomicEvent(name="US CPI", category="Inflation", importance="HIGH",
+                               scheduled_at="2026-01-02T00:00:00+00:00", source="real")],
+    )
+    evidence = ContextualEvidence(market_intelligence=mi, market_intelligence_relevant=True)
+    text = evidence_mod.render_for_llm(evidence)
+    assert "Overall Market Intelligence availability:" in text
+
+
+def test_render_for_llm_excludes_not_relevant_news_from_the_news_line():
+    mi = MarketIntelligenceContext(
+        data_available=True, generated_at="2026-01-01T00:00:00+00:00",
+        events=[EconomicEvent(name="US CPI", category="Inflation", importance="HIGH",
+                               scheduled_at="2026-01-02T00:00:00+00:00", source="real")],
+        news=[NewsArticle(id="1", headline="Apple releases new iPhone color", source="wire",
+                           published_at="2026-01-01T00:00:00+00:00", retrieved_at="2026-01-01T00:00:00+00:00")],
+    )
+    evidence = ContextualEvidence(market_intelligence=mi, market_intelligence_relevant=True)
+    text = evidence_mod.render_for_llm(evidence)
+    assert "iPhone" not in text

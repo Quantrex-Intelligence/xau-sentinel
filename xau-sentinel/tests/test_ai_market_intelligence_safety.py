@@ -22,6 +22,18 @@ def test_ground_rule_10_forbids_treating_news_as_a_forecast():
     assert "never translate one into a trade instruction" in prompt
 
 
+def test_ground_rule_10_names_the_explicit_quality_labels():
+    prompt = prompts.build_system_prompt(AssembledContext(sections=[]))
+    assert "LIVE/STALE/UNAVAILABLE/MOCK" in prompt
+    assert "RELEVANT/NOT_RELEVANT/UNKNOWN" in prompt
+
+
+def test_ground_rule_10_forbids_filling_missing_values_from_own_knowledge():
+    prompt = prompts.build_system_prompt(AssembledContext(sections=[]))
+    assert "never guessed at or" in prompt
+    assert "filled in from your own general knowledge" in prompt
+
+
 def test_unavailable_macro_provider_never_fabricates_a_value(monkeypatch):
     monkeypatch.setattr(config, "MARKET_INTEL_MACRO_PROVIDER", "not-a-real-provider")
     result = mi_tools.get_macro_context({})

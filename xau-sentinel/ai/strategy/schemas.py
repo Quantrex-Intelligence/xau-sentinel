@@ -58,6 +58,11 @@ class MarketIntelligenceSummaryOut(BaseModel):
     events: Optional[str] = None
     news: Optional[str] = None
     cross_asset: Optional[str] = None
+    # Stage 12: explicit machine-readable state, not just the text above —
+    # "LIVE" | "STALE" | "UNAVAILABLE" | "MOCK" and the deterministic
+    # AVAILABLE/PARTIALLY_AVAILABLE/UNAVAILABLE rollup.
+    freshness: Optional[str] = None
+    overall: Optional[str] = None
 
 
 class ContextualAnalysisOut(BaseModel):

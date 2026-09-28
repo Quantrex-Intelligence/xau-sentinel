@@ -99,6 +99,7 @@ class EconomicEvent:
     actual: Optional[str] = None
     forecast: Optional[str] = None
     previous: Optional[str] = None
+    country: Optional[str] = None  # e.g. "US" — every currently tracked series is US data (Stage 12)
 
 
 @dataclass

@@ -57,6 +57,7 @@ class EconomicEventOut(BaseModel):
     actual: Optional[str] = None
     forecast: Optional[str] = None
     previous: Optional[str] = None
+    country: Optional[str] = None
 
 
 class NewsArticleOut(BaseModel):
