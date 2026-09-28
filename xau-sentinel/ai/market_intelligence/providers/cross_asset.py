@@ -1,12 +1,15 @@
 """Cross-asset provider factory — the seam a real quote feed (DXY/yields/
-VIX/equity index/silver) plugs into later. Only "mock" exists today."""
+VIX/equity index/silver) plugs into. Stage 11 adds "real" (Yahoo Finance +
+FRED, see providers/real.py) alongside "mock"; default tied to config.MODE,
+still overridable via MARKET_INTEL_CROSS_ASSET_PROVIDER."""
 from typing import Optional
 
 import config
 from ai.market_intelligence.providers.base import BaseCrossAssetProvider
 from ai.market_intelligence.providers.mock import MockCrossAssetProvider
+from ai.market_intelligence.providers.real import RealCrossAssetProvider
 
-_PROVIDERS = {"mock": MockCrossAssetProvider}
+_PROVIDERS = {"mock": MockCrossAssetProvider, "real": RealCrossAssetProvider}
 
 
 def get_cross_asset_provider(name: Optional[str] = None) -> BaseCrossAssetProvider:

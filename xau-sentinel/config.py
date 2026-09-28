@@ -141,19 +141,46 @@ AI_SIMILARITY_DEFAULT_MIN_SIMILARITY = float(os.getenv("AI_SIMILARITY_DEFAULT_MI
 
 # --- Stage 9: Market Intelligence Layer ---
 # One provider setting per category, each keyed the same way AI_PROVIDER/
-# AI_EMBEDDING_PROVIDER already are — "mock" is the only backend that
-# exists today; a real provider plugs in later under the same name without
-# touching ai/market_intelligence/context.py, the tools, or the assistant.
-MARKET_INTEL_MACRO_PROVIDER = os.getenv("MARKET_INTEL_MACRO_PROVIDER", "mock").strip().lower()
-MARKET_INTEL_CROSS_ASSET_PROVIDER = os.getenv("MARKET_INTEL_CROSS_ASSET_PROVIDER", "mock").strip().lower()
-MARKET_INTEL_EVENTS_PROVIDER = os.getenv("MARKET_INTEL_EVENTS_PROVIDER", "mock").strip().lower()
-MARKET_INTEL_NEWS_PROVIDER = os.getenv("MARKET_INTEL_NEWS_PROVIDER", "mock").strip().lower()
+# AI_EMBEDDING_PROVIDER already are. Stage 11 adds a real backend ("real",
+# see ai/market_intelligence/providers/real.py) alongside "mock" — the
+# default per category follows the app's own MODE (the same mock/live
+# convention mt5/account.py already uses everywhere else), so MODE=mock
+# (the safe, offline default) keeps Market Intelligence mock too, and
+# MODE=live automatically tries real sources — still overridable
+# individually via each MARKET_INTEL_*_PROVIDER env var regardless of MODE.
+_MARKET_INTEL_DEFAULT_PROVIDER = "real" if MODE == "live" else "mock"
+MARKET_INTEL_MACRO_PROVIDER = os.getenv("MARKET_INTEL_MACRO_PROVIDER", _MARKET_INTEL_DEFAULT_PROVIDER).strip().lower()
+MARKET_INTEL_CROSS_ASSET_PROVIDER = os.getenv(
+    "MARKET_INTEL_CROSS_ASSET_PROVIDER", _MARKET_INTEL_DEFAULT_PROVIDER
+).strip().lower()
+MARKET_INTEL_EVENTS_PROVIDER = os.getenv("MARKET_INTEL_EVENTS_PROVIDER", _MARKET_INTEL_DEFAULT_PROVIDER).strip().lower()
+MARKET_INTEL_NEWS_PROVIDER = os.getenv("MARKET_INTEL_NEWS_PROVIDER", _MARKET_INTEL_DEFAULT_PROVIDER).strip().lower()
 # News older than this is filtered out at context-assembly time — "do not
 # store every article indefinitely."
 MARKET_INTEL_NEWS_MAX_AGE_HOURS = float(os.getenv("MARKET_INTEL_NEWS_MAX_AGE_HOURS", 48))
 MARKET_INTEL_NEWS_DEFAULT_LIMIT = int(os.getenv("MARKET_INTEL_NEWS_DEFAULT_LIMIT", 10))
 MARKET_INTEL_EVENTS_DAYS_AHEAD = int(os.getenv("MARKET_INTEL_EVENTS_DAYS_AHEAD", 7))
 MARKET_INTEL_EVENTS_DAYS_BACK = int(os.getenv("MARKET_INTEL_EVENTS_DAYS_BACK", 1))
+
+
+# --- Stage 11: Real Free Market Intelligence Providers ---
+# FRED (Federal Reserve Economic Data) is free but needs a self-service API
+# key — https://fred.stlouisfed.org/docs/api/api_key.html. Left blank, the
+# real macro/events providers degrade to data_available=False (an explicit,
+# never-fabricated "unavailable"), never a crash — the app still boots and
+# runs with no key configured, exactly as the spec requires. Yahoo Finance's
+# public chart endpoint and the two RSS feeds need no key at all.
+MARKET_INTEL_FRED_API_KEY = os.getenv("MARKET_INTEL_FRED_API_KEY", "").strip()
+MARKET_INTEL_HTTP_TIMEOUT_SECONDS = float(os.getenv("MARKET_INTEL_HTTP_TIMEOUT_SECONDS", 8.0))
+# Per-category cache TTLs — a real provider is never hit more often than
+# this, no matter how often the UI polls or the A+ evidence builder runs.
+MARKET_INTEL_CACHE_TTL_MACRO_SECONDS = int(os.getenv("MARKET_INTEL_CACHE_TTL_MACRO_SECONDS", 3600))
+MARKET_INTEL_CACHE_TTL_EVENTS_SECONDS = int(os.getenv("MARKET_INTEL_CACHE_TTL_EVENTS_SECONDS", 600))
+MARKET_INTEL_CACHE_TTL_NEWS_SECONDS = int(os.getenv("MARKET_INTEL_CACHE_TTL_NEWS_SECONDS", 600))
+MARKET_INTEL_CACHE_TTL_CROSS_ASSET_SECONDS = int(os.getenv("MARKET_INTEL_CACHE_TTL_CROSS_ASSET_SECONDS", 120))
+# A real snapshot older than this is classified STALE rather than LIVE in
+# the UI — see ai/market_intelligence/models.py::classify_freshness().
+MARKET_INTEL_STALE_AFTER_SECONDS = float(os.getenv("MARKET_INTEL_STALE_AFTER_SECONDS", 7200))
 
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"

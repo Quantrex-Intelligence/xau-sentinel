@@ -44,6 +44,7 @@ class MockMacroProvider(BaseMacroProvider):
             gdp_growth_yoy=round(2.1 + float(rng.normal(0, 0.2)), 2),
             us10y_yield=round(4.2 + float(rng.normal(0, 0.08)), 2),
             us2y_yield=round(4.5 + float(rng.normal(0, 0.08)), 2),
+            freshness="MOCK",
         )
 
     def get_gold_fundamentals(self) -> GoldFundamentals:
@@ -59,6 +60,7 @@ class MockMacroProvider(BaseMacroProvider):
             data_available=True, source=self.name, generated_at=_now_iso(),
             usd_strength_bias=usd_bias, real_yield_10y=real_yield,
             central_bank_demand_trend=demand_trend, etf_flows_trend=flows_trend,
+            freshness="MOCK",
         )
 
 
@@ -78,6 +80,7 @@ class MockCrossAssetProvider(BaseCrossAssetProvider):
             vix=round(max(8.0, 15.0 + float(rng.normal(0, 2.5))), 2),
             equity_index=round(5200.0 + float(rng.normal(0, 40)), 2),
             silver_price=round(30.0 + float(rng.normal(0, 0.8)), 2),
+            freshness="MOCK",
         )
 
 

@@ -4,12 +4,26 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { usePolling } from "@/lib/use-polling";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type { EconomicEvent, NewsArticle } from "@/lib/types";
 
+/** Stage 11: this panel displays external-source timestamps in
+ * Asia/Phnom_Penh specifically (the spec-named display timezone) — scoped
+ * to only this panel; internal storage and every other panel stay UTC. */
 function formatTimestamp(iso: string | null): string {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString(undefined, { hour12: false });
+    return (
+      new Date(iso).toLocaleString("en-US", {
+        hour12: false,
+        timeZone: "Asia/Phnom_Penh",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }) + " ICT"
+    );
   } catch {
     return iso;
   }
@@ -19,6 +33,29 @@ function SourceBadge({ source }: { source: string }) {
   return (
     <span className="text-[9px] uppercase tracking-wide bg-muted text-muted-foreground px-1 py-0.5 rounded">
       {source}
+    </span>
+  );
+}
+
+/** LIVE/STALE/UNAVAILABLE/MOCK (ai/market_intelligence/models.py's
+ * classify_freshness) — lets the user tell real-and-current data apart
+ * from real-but-stale, missing, or synthetic mock data at a glance. */
+const FRESHNESS_STYLES: Record<string, string> = {
+  LIVE: "bg-bullish/10 text-bullish",
+  STALE: "bg-warning/10 text-warning",
+  UNAVAILABLE: "bg-bearish/10 text-bearish",
+  MOCK: "bg-muted text-muted-foreground",
+};
+
+function FreshnessBadge({ freshness }: { freshness: string }) {
+  return (
+    <span
+      className={cn(
+        "text-[9px] uppercase tracking-wide px-1 py-0.5 rounded font-semibold",
+        FRESHNESS_STYLES[freshness] ?? "bg-muted text-muted-foreground"
+      )}
+    >
+      {freshness}
     </span>
   );
 }
@@ -88,52 +125,71 @@ export function MarketIntelligencePanel() {
 
           {ctx && (
             <>
-              {ctx.macro?.data_available && (
+              {ctx.macro && (
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <p className="text-[11px] font-semibold text-muted-foreground uppercase">Macro</p>
                     <SourceBadge source={ctx.macro.source} />
+                    <FreshnessBadge freshness={ctx.macro.freshness} />
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <Stat label="Fed Funds" value={ctx.macro.fed_funds_rate} />
-                    <Stat label="CPI YoY" value={ctx.macro.cpi_yoy} />
-                    <Stat label="Unemployment" value={ctx.macro.unemployment_rate} />
-                    <Stat label="GDP YoY" value={ctx.macro.gdp_growth_yoy} />
-                    <Stat label="US10Y" value={ctx.macro.us10y_yield} />
-                    <Stat label="US2Y" value={ctx.macro.us2y_yield} />
-                  </div>
+                  {ctx.macro.data_available ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      <Stat label="Fed Funds" value={ctx.macro.fed_funds_rate} />
+                      <Stat label="CPI YoY" value={ctx.macro.cpi_yoy} />
+                      <Stat label="Unemployment" value={ctx.macro.unemployment_rate} />
+                      <Stat label="GDP YoY" value={ctx.macro.gdp_growth_yoy} />
+                      <Stat label="US10Y" value={ctx.macro.us10y_yield} />
+                      <Stat label="US2Y" value={ctx.macro.us2y_yield} />
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">{ctx.macro.reason ?? "No data available."}</p>
+                  )}
                 </div>
               )}
 
-              {ctx.gold_fundamentals?.data_available && (
+              {ctx.gold_fundamentals && (
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <p className="text-[11px] font-semibold text-muted-foreground uppercase">Gold Fundamentals</p>
                     <SourceBadge source={ctx.gold_fundamentals.source} />
+                    <FreshnessBadge freshness={ctx.gold_fundamentals.freshness} />
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <Stat label="USD Bias" value={ctx.gold_fundamentals.usd_strength_bias} />
-                    <Stat label="Real Yield 10Y" value={ctx.gold_fundamentals.real_yield_10y} />
-                    <Stat label="CB Demand" value={ctx.gold_fundamentals.central_bank_demand_trend} />
-                    <Stat label="ETF Flows" value={ctx.gold_fundamentals.etf_flows_trend} />
-                  </div>
+                  {ctx.gold_fundamentals.data_available ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      <Stat label="USD Bias" value={ctx.gold_fundamentals.usd_strength_bias} />
+                      <Stat label="Real Yield 10Y" value={ctx.gold_fundamentals.real_yield_10y} />
+                      <Stat label="CB Demand" value={ctx.gold_fundamentals.central_bank_demand_trend} />
+                      <Stat label="ETF Flows" value={ctx.gold_fundamentals.etf_flows_trend} />
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      {ctx.gold_fundamentals.reason ?? "No data available."}
+                    </p>
+                  )}
                 </div>
               )}
 
-              {ctx.cross_asset?.data_available && (
+              {ctx.cross_asset && (
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <p className="text-[11px] font-semibold text-muted-foreground uppercase">Cross-Asset</p>
                     <SourceBadge source={ctx.cross_asset.source} />
+                    <FreshnessBadge freshness={ctx.cross_asset.freshness} />
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <Stat label="DXY" value={ctx.cross_asset.dxy} />
-                    <Stat label="VIX" value={ctx.cross_asset.vix} />
-                    <Stat label="Silver" value={ctx.cross_asset.silver_price} />
-                    <Stat label="US10Y" value={ctx.cross_asset.us10y_yield} />
-                    <Stat label="US2Y" value={ctx.cross_asset.us2y_yield} />
-                    <Stat label="Equity Idx" value={ctx.cross_asset.equity_index} />
-                  </div>
+                  {ctx.cross_asset.data_available ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      <Stat label="DXY" value={ctx.cross_asset.dxy} />
+                      <Stat label="VIX" value={ctx.cross_asset.vix} />
+                      <Stat label="Silver" value={ctx.cross_asset.silver_price} />
+                      <Stat label="US10Y" value={ctx.cross_asset.us10y_yield} />
+                      <Stat label="US2Y" value={ctx.cross_asset.us2y_yield} />
+                      <Stat label="Equity Idx" value={ctx.cross_asset.equity_index} />
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground">
+                      {ctx.cross_asset.reason ?? "No data available."}
+                    </p>
+                  )}
                 </div>
               )}
 

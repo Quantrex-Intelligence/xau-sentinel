@@ -99,6 +99,26 @@ def _default_thresholds(monkeypatch):
     monkeypatch.setattr(config, "MARKET_INTEL_NEWS_DEFAULT_LIMIT", 10)
     monkeypatch.setattr(config, "MARKET_INTEL_EVENTS_DAYS_AHEAD", 7)
     monkeypatch.setattr(config, "MARKET_INTEL_EVENTS_DAYS_BACK", 1)
+    monkeypatch.setattr(config, "MARKET_INTEL_FRED_API_KEY", "")
+    monkeypatch.setattr(config, "MARKET_INTEL_HTTP_TIMEOUT_SECONDS", 8.0)
+    monkeypatch.setattr(config, "MARKET_INTEL_CACHE_TTL_MACRO_SECONDS", 3600)
+    monkeypatch.setattr(config, "MARKET_INTEL_CACHE_TTL_EVENTS_SECONDS", 600)
+    monkeypatch.setattr(config, "MARKET_INTEL_CACHE_TTL_NEWS_SECONDS", 600)
+    monkeypatch.setattr(config, "MARKET_INTEL_CACHE_TTL_CROSS_ASSET_SECONDS", 120)
+    monkeypatch.setattr(config, "MARKET_INTEL_STALE_AFTER_SECONDS", 7200.0)
+
+
+@pytest.fixture(autouse=True)
+def _clear_market_intelligence_cache():
+    """ai/market_intelligence/providers/cache.py is a module-level, process-
+    lifetime in-memory cache (by design — see its own docstring). Without
+    this, one test's mocked HTTP response could leak into a later test that
+    happens to use the same cache key (e.g. the same FRED series_id) but
+    expects a different mocked response."""
+    from ai.market_intelligence.providers import cache
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture

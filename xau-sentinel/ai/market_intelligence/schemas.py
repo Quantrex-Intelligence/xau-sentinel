@@ -18,6 +18,7 @@ class MacroSnapshotOut(BaseModel):
     us10y_yield: Optional[float] = None
     us2y_yield: Optional[float] = None
     reason: Optional[str] = None
+    freshness: str = "UNAVAILABLE"
 
 
 class GoldFundamentalsOut(BaseModel):
@@ -29,6 +30,7 @@ class GoldFundamentalsOut(BaseModel):
     central_bank_demand_trend: Optional[str] = None
     etf_flows_trend: Optional[str] = None
     reason: Optional[str] = None
+    freshness: str = "UNAVAILABLE"
 
 
 class CrossAssetSnapshotOut(BaseModel):
@@ -43,6 +45,7 @@ class CrossAssetSnapshotOut(BaseModel):
     equity_index: Optional[float] = None
     silver_price: Optional[float] = None
     reason: Optional[str] = None
+    freshness: str = "UNAVAILABLE"
 
 
 class EconomicEventOut(BaseModel):

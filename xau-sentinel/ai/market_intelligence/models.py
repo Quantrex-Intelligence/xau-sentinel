@@ -5,9 +5,39 @@ Every dataclass carries `data_available` and `source` (never fabricated —
 a provider that has nothing returns data_available=False, not a guess),
 and every time-sensitive field has an explicit timestamp string (ISO 8601,
 UTC) so staleness is always checkable rather than implied.
+
+Stage 11: the three snapshot types also carry `freshness` (LIVE/STALE/
+UNAVAILABLE/MOCK) via classify_freshness() below — the UI's at-a-glance
+status badge, so the user always knows whether Sentinel is looking at real
+or mock information, and whether "real" is actually current.
 """
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import List, Optional
+
+
+def classify_freshness(data_available: bool, source: str, generated_at: Optional[str],
+                        stale_after_seconds: float) -> str:
+    """MOCK takes priority over everything else — a mock value is never
+    "live" no matter how recent its timestamp. UNAVAILABLE means the
+    provider had nothing. Otherwise STALE once `generated_at` is older
+    than `stale_after_seconds`, else LIVE. Never raises — an unparseable
+    or missing timestamp on an otherwise-available result is treated as
+    STALE (freshness can't be confirmed, so it's not claimed)."""
+    if source == "mock":
+        return "MOCK"
+    if not data_available:
+        return "UNAVAILABLE"
+    if not generated_at:
+        return "STALE"
+    try:
+        generated = datetime.fromisoformat(generated_at)
+        if generated.tzinfo is None:
+            generated = generated.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return "STALE"
+    age_seconds = (datetime.now(timezone.utc) - generated).total_seconds()
+    return "LIVE" if age_seconds <= stale_after_seconds else "STALE"
 
 
 @dataclass
@@ -23,6 +53,7 @@ class MacroSnapshot:
     us10y_yield: Optional[float] = None
     us2y_yield: Optional[float] = None
     reason: Optional[str] = None  # set when data_available is False
+    freshness: str = "UNAVAILABLE"  # "LIVE" | "STALE" | "UNAVAILABLE" | "MOCK" — see classify_freshness()
 
 
 @dataclass
@@ -39,6 +70,7 @@ class GoldFundamentals:
     central_bank_demand_trend: Optional[str] = None  # "ACCUMULATING" | "NEUTRAL" | "DISTRIBUTING"
     etf_flows_trend: Optional[str] = None  # "INFLOWS" | "NEUTRAL" | "OUTFLOWS"
     reason: Optional[str] = None
+    freshness: str = "UNAVAILABLE"
 
 
 @dataclass
@@ -54,6 +86,7 @@ class CrossAssetSnapshot:
     equity_index: Optional[float] = None
     silver_price: Optional[float] = None
     reason: Optional[str] = None
+    freshness: str = "UNAVAILABLE"
 
 
 @dataclass

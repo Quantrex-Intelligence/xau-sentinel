@@ -12,17 +12,17 @@ const fullContext: MarketIntelligenceContext = {
   macro: {
     data_available: true, source: "mock", generated_at: "2026-01-01T00:00:00Z",
     fed_funds_rate: 5.25, cpi_yoy: 3.0, core_cpi_yoy: 3.3, unemployment_rate: 4.0,
-    gdp_growth_yoy: 2.1, us10y_yield: 4.2, us2y_yield: 4.5, reason: null,
+    gdp_growth_yoy: 2.1, us10y_yield: 4.2, us2y_yield: 4.5, reason: null, freshness: "MOCK",
   },
   gold_fundamentals: {
     data_available: true, source: "mock", generated_at: "2026-01-01T00:00:00Z",
     usd_strength_bias: "NEUTRAL", real_yield_10y: 1.2, central_bank_demand_trend: "ACCUMULATING",
-    etf_flows_trend: "INFLOWS", reason: null,
+    etf_flows_trend: "INFLOWS", reason: null, freshness: "MOCK",
   },
   cross_asset: {
     data_available: true, source: "mock", generated_at: "2026-01-01T00:00:00Z",
     dxy: 104.0, us2y_yield: 4.5, us10y_yield: 4.2, real_yield_10y: 1.2, vix: 15.0,
-    equity_index: 5200.0, silver_price: 30.0, reason: null,
+    equity_index: 5200.0, silver_price: 30.0, reason: null, freshness: "MOCK",
   },
   events: [{
     name: "[MOCK] US CPI (YoY)", category: "Inflation", importance: "HIGH",
@@ -77,5 +77,54 @@ describe("MarketIntelligencePanel", () => {
     const bodyText = document.body.textContent ?? "";
     expect(bodyText.toLowerCase()).not.toContain("probability");
     expect(bodyText.toLowerCase()).not.toContain("chance of");
+  });
+
+  it("shows a MOCK freshness badge for mock-sourced sections", async () => {
+    marketIntelligence.mockResolvedValue(fullContext);
+    render(<MarketIntelligencePanel />);
+    fireEvent.click(screen.getByText("Market intelligence"));
+    await waitFor(() => expect(screen.getByText("Macro")).toBeInTheDocument());
+    expect(screen.getAllByText("MOCK").length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("shows a LIVE freshness badge and real data for a real, current section", async () => {
+    marketIntelligence.mockResolvedValue({
+      ...fullContext,
+      macro: { ...fullContext.macro!, source: "real", freshness: "LIVE" },
+    });
+    render(<MarketIntelligencePanel />);
+    fireEvent.click(screen.getByText("Market intelligence"));
+    await waitFor(() => expect(screen.getByText("Macro")).toBeInTheDocument());
+    expect(screen.getByText("LIVE")).toBeInTheDocument();
+    expect(screen.getByText("real")).toBeInTheDocument();
+  });
+
+  it("shows an UNAVAILABLE badge and the reason when a real section has no data", async () => {
+    marketIntelligence.mockResolvedValue({
+      ...fullContext,
+      macro: {
+        data_available: false, source: "real", generated_at: null,
+        fed_funds_rate: null, cpi_yoy: null, core_cpi_yoy: null, unemployment_rate: null,
+        gdp_growth_yoy: null, us10y_yield: null, us2y_yield: null,
+        reason: "MARKET_INTEL_FRED_API_KEY is not set — see .env.example.", freshness: "UNAVAILABLE",
+      },
+    });
+    render(<MarketIntelligencePanel />);
+    fireEvent.click(screen.getByText("Market intelligence"));
+    await waitFor(() => expect(screen.getByText("Macro")).toBeInTheDocument());
+    expect(screen.getByText("UNAVAILABLE")).toBeInTheDocument();
+    expect(screen.getByText("MARKET_INTEL_FRED_API_KEY is not set — see .env.example.")).toBeInTheDocument();
+    expect(screen.queryByText("Fed Funds")).not.toBeInTheDocument();
+  });
+
+  it("shows a STALE badge for real data older than the freshness threshold", async () => {
+    marketIntelligence.mockResolvedValue({
+      ...fullContext,
+      cross_asset: { ...fullContext.cross_asset!, source: "real", freshness: "STALE" },
+    });
+    render(<MarketIntelligencePanel />);
+    fireEvent.click(screen.getByText("Market intelligence"));
+    await waitFor(() => expect(screen.getByText("Cross-Asset")).toBeInTheDocument());
+    expect(screen.getByText("STALE")).toBeInTheDocument();
   });
 });

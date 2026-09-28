@@ -558,6 +558,8 @@ export interface MacroSnapshot {
   us10y_yield: number | null;
   us2y_yield: number | null;
   reason: string | null;
+  /** "LIVE" | "STALE" | "UNAVAILABLE" | "MOCK" (Stage 11) */
+  freshness: string;
 }
 
 export interface GoldFundamentals {
@@ -569,6 +571,7 @@ export interface GoldFundamentals {
   central_bank_demand_trend: string | null;
   etf_flows_trend: string | null;
   reason: string | null;
+  freshness: string;
 }
 
 export interface CrossAssetSnapshot {
@@ -583,6 +586,7 @@ export interface CrossAssetSnapshot {
   equity_index: number | null;
   silver_price: number | null;
   reason: string | null;
+  freshness: string;
 }
 
 export interface EconomicEvent {

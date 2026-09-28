@@ -1,13 +1,15 @@
-"""Economic events provider factory — the seam a real calendar (a free
-public source, e.g. an official statistics agency feed) plugs into later.
-Only "mock" exists today."""
+"""Economic events provider factory — the seam a real calendar plugs into.
+Stage 11 adds "real" (FRED observations + release-dates, see
+providers/real.py) alongside "mock"; default tied to config.MODE, still
+overridable via MARKET_INTEL_EVENTS_PROVIDER."""
 from typing import Optional
 
 import config
 from ai.market_intelligence.providers.base import BaseEventsProvider
 from ai.market_intelligence.providers.mock import MockEventsProvider
+from ai.market_intelligence.providers.real import RealEventsProvider
 
-_PROVIDERS = {"mock": MockEventsProvider}
+_PROVIDERS = {"mock": MockEventsProvider, "real": RealEventsProvider}
 
 
 def get_events_provider(name: Optional[str] = None) -> BaseEventsProvider:

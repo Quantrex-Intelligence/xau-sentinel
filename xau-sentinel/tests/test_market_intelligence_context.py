@@ -86,3 +86,70 @@ def test_context_never_imports_sentinels_technical_engine():
 def test_sources_are_deduplicated_and_sorted():
     ctx = build_market_intelligence_context()
     assert ctx.sources == sorted(set(ctx.sources))
+
+
+def test_context_consumes_real_provider_shaped_data_unchanged(monkeypatch):
+    """Stage 11: build_market_intelligence_context() must need zero changes
+    to consume real-provider output. Proven by faking each factory to
+    return objects shaped exactly like Stage 11's real providers (source=
+    "real", a populated freshness field) and confirming the aggregate
+    context assembles them the same way it does mock data."""
+    from datetime import datetime, timedelta, timezone
+
+    from ai.market_intelligence.models import (
+        CrossAssetSnapshot, EconomicEvent, GoldFundamentals, MacroSnapshot, NewsArticle,
+    )
+
+    now = datetime.now(timezone.utc)
+
+    class _FakeRealMacroProvider:
+        def get_macro_snapshot(self):
+            return MacroSnapshot(
+                data_available=True, source="real", generated_at=now.isoformat(),
+                fed_funds_rate=5.25, cpi_yoy=3.1, freshness="LIVE",
+            )
+
+        def get_gold_fundamentals(self):
+            return GoldFundamentals(
+                data_available=True, source="real", generated_at=now.isoformat(),
+                usd_strength_bias="STRONG", real_yield_10y=1.1, freshness="LIVE",
+            )
+
+    class _FakeRealCrossAssetProvider:
+        def get_cross_asset_snapshot(self):
+            return CrossAssetSnapshot(
+                data_available=True, source="real", generated_at=now.isoformat(),
+                dxy=101.28, vix=16.13, freshness="LIVE",
+            )
+
+    class _FakeRealEventsProvider:
+        def get_economic_events(self, days_ahead, days_back):
+            return [EconomicEvent(
+                name="US CPI (YoY)", category="Inflation", importance="HIGH",
+                scheduled_at=now.isoformat(), source="real", actual="3.10%", previous="3.00%",
+            )]
+
+    class _FakeRealNewsProvider:
+        def get_recent_news(self, limit, max_age_hours):
+            article = NewsArticle(
+                id="", headline="Federal Reserve issues FOMC statement", source="federal_reserve",
+                published_at=now.isoformat(), retrieved_at=now.isoformat(),
+                url="https://federalreserve.gov/a", category="macro", importance="HIGH",
+            )
+            article.id = "fake-stable-id"
+            return [article]
+
+    monkeypatch.setattr(context_mod, "get_macro_provider", lambda: _FakeRealMacroProvider())
+    monkeypatch.setattr(context_mod, "get_cross_asset_provider", lambda: _FakeRealCrossAssetProvider())
+    monkeypatch.setattr(context_mod, "get_events_provider", lambda: _FakeRealEventsProvider())
+    monkeypatch.setattr(context_mod, "get_news_provider", lambda: _FakeRealNewsProvider())
+
+    ctx = build_market_intelligence_context()
+
+    assert ctx.data_available is True
+    assert ctx.sources == ["federal_reserve", "real"]
+    assert ctx.macro.source == "real" and ctx.macro.freshness == "LIVE"
+    assert ctx.gold_fundamentals.source == "real" and ctx.gold_fundamentals.freshness == "LIVE"
+    assert ctx.cross_asset.source == "real" and ctx.cross_asset.freshness == "LIVE"
+    assert len(ctx.events) == 1 and ctx.events[0].source == "real"
+    assert len(ctx.news) == 1 and ctx.news[0].source == "federal_reserve"
