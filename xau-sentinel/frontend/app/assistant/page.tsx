@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Panel } from "@/components/layout/panel";
 import { ChatMessage, type ChatTurn } from "@/components/ai/chat-message";
 import { SuggestedQuestions } from "@/components/ai/suggested-questions";
+import { MemoryPanel } from "@/components/ai/memory-panel";
 import { api, ApiError } from "@/lib/api";
 import type { AiConfig } from "@/lib/types";
 
@@ -26,6 +27,7 @@ function AssistantPageInner() {
   const [input, setInput] = useState("");
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
+  const [memoryPrefill, setMemoryPrefill] = useState<string | undefined>(undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
   const autoAskedTradeRef = useRef<string | null>(null);
 
@@ -120,6 +122,8 @@ function AssistantPageInner() {
 
       <SuggestedQuestions onSelect={(q, scope) => send(q, scope)} disabled={loading} />
 
+      <MemoryPanel prefill={memoryPrefill} onPrefillConsumed={() => setMemoryPrefill(undefined)} />
+
       <div className="flex-1 overflow-y-auto rounded-md border border-border bg-card p-4 flex flex-col gap-3">
         {turns.length === 0 && (
           <p className="text-sm text-muted-foreground">
@@ -128,7 +132,7 @@ function AssistantPageInner() {
           </p>
         )}
         {turns.map((turn, i) => (
-          <ChatMessage key={i} turn={turn} />
+          <ChatMessage key={i} turn={turn} onSaveToMemory={setMemoryPrefill} />
         ))}
         {loading && <div className="text-xs text-muted-foreground">Thinking…</div>}
         <div ref={bottomRef} />

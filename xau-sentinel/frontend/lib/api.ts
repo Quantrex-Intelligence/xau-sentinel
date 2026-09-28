@@ -17,6 +17,8 @@ import type {
   KnowledgeDocument,
   Liquidity,
   MarketSnapshot,
+  MemoryCreateInput,
+  MemoryRecord,
   Regime,
   Risk,
   Settings,
@@ -104,6 +106,21 @@ export const api = {
     request<ChatResponse>("/api/ai/chat", { method: "POST", body: JSON.stringify(payload) }),
   knowledgeDocuments: () => request<KnowledgeDocument[]>("/api/ai/knowledge/documents"),
   aiTools: () => request<ToolInfo[]>("/api/ai/tools"),
+
+  memoryList: (opts?: { category?: string; includeArchived?: boolean }) => {
+    const params = new URLSearchParams();
+    if (opts?.category) params.set("category", opts.category);
+    if (opts?.includeArchived) params.set("include_archived", "true");
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    return request<MemoryRecord[]>(`/api/ai/memory${qs}`);
+  },
+  memoryGet: (id: number) => request<MemoryRecord>(`/api/ai/memory/${id}`),
+  memoryCreate: (payload: MemoryCreateInput) =>
+    request<MemoryRecord>("/api/ai/memory", { method: "POST", body: JSON.stringify(payload) }),
+  memoryUpdate: (id: number, payload: Partial<MemoryCreateInput>) =>
+    request<MemoryRecord>(`/api/ai/memory/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  memoryArchive: (id: number) =>
+    request<MemoryRecord>(`/api/ai/memory/${id}/archive`, { method: "POST" }),
 
   strategyAPlus: () => request<StrategyEvaluation>("/api/strategy/aplus"),
 };

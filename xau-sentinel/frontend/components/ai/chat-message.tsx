@@ -1,8 +1,10 @@
+import { BookmarkPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChatResponse } from "@/lib/types";
 import { ContextIndicator } from "./context-indicator";
 import { KnowledgeSources } from "./knowledge-sources";
 import { ToolsUsed } from "./tools-used";
+import { MemoryUsed } from "./memory-used";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -13,7 +15,14 @@ export interface ChatTurn {
   isError?: boolean;
 }
 
-export function ChatMessage({ turn }: { turn: ChatTurn }) {
+export function ChatMessage({ turn, onSaveToMemory }: {
+  turn: ChatTurn;
+  /** Called with this turn's answer text when the user clicks "Save to
+   * memory" — never called automatically. The caller (the assistant page)
+   * hands the text to MemoryPanel as an editable, unsaved draft; nothing is
+   * persisted until the user separately confirms it there. */
+  onSaveToMemory?: (content: string) => void;
+}) {
   const isUser = turn.role === "user";
   return (
     <div className={cn("flex flex-col gap-1", isUser ? "items-end" : "items-start")}>
@@ -34,6 +43,16 @@ export function ChatMessage({ turn }: { turn: ChatTurn }) {
           <ContextIndicator sources={turn.response.sources} category={turn.response.category} />
           <KnowledgeSources sources={turn.response.knowledge_used} />
           <ToolsUsed tools={turn.response.tools_used} />
+          <MemoryUsed memories={turn.response.memory_used} />
+          {onSaveToMemory && (
+            <button
+              onClick={() => onSaveToMemory(turn.content)}
+              className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              <BookmarkPlus className="size-3" />
+              Save to memory
+            </button>
+          )}
         </div>
       )}
     </div>

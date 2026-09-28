@@ -7,6 +7,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from ai.knowledge.schemas import KnowledgeSourceOut
+from ai.memory.schemas import MemoryUsedOut
 from ai.tools.schemas import ToolUsageOut
 
 
@@ -58,6 +59,10 @@ class ChatResponseOut(BaseModel):
     # order — the UI's "Tools used" transparency panel renders this list
     # directly. Empty when the answer needed no tool call.
     tools_used: List[ToolUsageOut] = []
+    # Stage 7: user-confirmed trading memory retrieved for this turn,
+    # alongside (never replacing) the sources above. Empty when nothing
+    # active cleared the relevance threshold.
+    memory_used: List[MemoryUsedOut] = []
 
 
 class AiConfigOut(BaseModel):

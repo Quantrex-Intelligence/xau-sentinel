@@ -27,6 +27,8 @@ from ai import context as context_builder
 from ai import prompts
 from ai.knowledge import retrieval as knowledge_retrieval
 from ai.knowledge.schemas import KnowledgeSourceOut
+from ai.memory import retrieval as memory_retrieval
+from ai.memory.schemas import MemoryUsedOut
 from ai.providers import get_provider
 from ai.schemas import AnswerCategory, ChatResponseOut, ContextSourceOut
 from ai.tools import execute as execute_tool
@@ -93,7 +95,10 @@ def chat(message: str, conversation_id: Optional[str] = None,
     # touches live market/account/journal data — only the seeded reference
     # documents (see ai/knowledge/).
     knowledge_chunks = knowledge_retrieval.retrieve(message)
-    system_prompt = prompts.build_system_prompt(assembled, knowledge_chunks)
+    # Same shape as knowledge retrieval, a separate layer (Stage 7): only
+    # ever reads user-confirmed memory, never writes it — see ai/memory/.
+    memories = memory_retrieval.retrieve_memory(message)
+    system_prompt = prompts.build_system_prompt(assembled, knowledge_chunks, memories)
     history = _load_history(conversation_id)
     messages = prompts.build_messages(history, message)
 
@@ -129,6 +134,14 @@ def chat(message: str, conversation_id: Optional[str] = None,
         for c in knowledge_chunks
     ]
 
+    memory_used = [
+        MemoryUsedOut(
+            id=m.id, category=m.category, similarity=m.similarity, updated_at=m.updated_at,
+            excerpt=(m.content[:200] + "…") if len(m.content) > 200 else m.content,
+        )
+        for m in memories
+    ]
+
     return ChatResponseOut(
         answer=answer_text,
         conversation_id=conversation_id,
@@ -140,6 +153,7 @@ def chat(message: str, conversation_id: Optional[str] = None,
         created_at=datetime.now(timezone.utc).isoformat(),
         knowledge_used=knowledge_used,
         tools_used=tools_used,
+        memory_used=memory_used,
     )
 
 

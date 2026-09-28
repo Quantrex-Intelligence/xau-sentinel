@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ChatMessage, type ChatTurn } from "./chat-message";
 import type { ChatResponse } from "@/lib/types";
 
@@ -14,6 +14,7 @@ const response: ChatResponse = {
   created_at: "2026-01-01T00:00:00Z",
   knowledge_used: [],
   tools_used: [],
+  memory_used: [],
 };
 
 describe("ChatMessage", () => {
@@ -52,6 +53,30 @@ describe("ChatMessage", () => {
     const turn: ChatTurn = { role: "assistant", content: withTools.answer, response: withTools };
     render(<ChatMessage turn={turn} />);
     expect(screen.getByText("Current Setup")).toBeInTheDocument();
+  });
+
+  it("renders memory used alongside the context indicator when present", () => {
+    const withMemory: ChatResponse = {
+      ...response,
+      memory_used: [{ id: 1, category: "TRADE_LESSON", excerpt: "Enters too early.", similarity: 0.4, updated_at: "2026-01-01T00:00:00Z" }],
+    };
+    const turn: ChatTurn = { role: "assistant", content: withMemory.answer, response: withMemory };
+    render(<ChatMessage turn={turn} />);
+    expect(screen.getByText("TRADE_LESSON")).toBeInTheDocument();
+  });
+
+  it("does not show a Save to memory action when no callback is given", () => {
+    const turn: ChatTurn = { role: "assistant", content: response.answer, response };
+    render(<ChatMessage turn={turn} />);
+    expect(screen.queryByText("Save to memory")).not.toBeInTheDocument();
+  });
+
+  it("calls onSaveToMemory with the turn's answer text when clicked", () => {
+    const onSaveToMemory = vi.fn();
+    const turn: ChatTurn = { role: "assistant", content: response.answer, response };
+    render(<ChatMessage turn={turn} onSaveToMemory={onSaveToMemory} />);
+    fireEvent.click(screen.getByText("Save to memory"));
+    expect(onSaveToMemory).toHaveBeenCalledWith(response.answer);
   });
 
   it("renders a client-side error turn distinctly, never as a normal answer", () => {

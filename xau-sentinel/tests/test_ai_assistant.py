@@ -197,6 +197,32 @@ def test_tools_used_defaults_to_empty_list_for_a_provider_that_never_calls_a_too
     assert result.answer == "a helpful, safe answer"
 
 
+def test_memory_used_defaults_to_empty_list_when_no_memory_exists(monkeypatch):
+    """Stage 7 regression: chat()'s pre-Stage-7 return shape and behavior
+    are completely unaffected when no memory has been saved yet — same
+    guarantee proven for knowledge_used (Stage 5) and tools_used (Stage 6)."""
+    _use_provider(monkeypatch, _RecordingProvider(reply="a helpful, safe answer"))
+    result = assistant.chat("Question")
+    assert result.memory_used == []
+    assert result.answer == "a helpful, safe answer"
+
+
+def test_memory_used_is_populated_when_a_relevant_memory_exists(monkeypatch, temp_db):
+    from ai.memory import store
+    from ai.memory.models import MemoryCategory
+    store.init_table()
+    store.create_memory(MemoryCategory.TRADE_LESSON,
+                         "User repeatedly enters too early before the retracement completes.")
+    _use_provider(monkeypatch, _RecordingProvider())
+
+    result = assistant.chat("why do I enter too early?")
+
+    assert len(result.memory_used) > 0
+    assert result.memory_used[0].category == MemoryCategory.TRADE_LESSON
+    # Unaffected by the addition — same as knowledge_used's own regression test.
+    assert set(result.context_used) == {"Market Structure", "Setup", "FundedNext Risk"}
+
+
 def test_secret_api_key_never_leaks_into_the_response(monkeypatch):
     secret = "sk-test-super-secret-value-should-never-leak"
     monkeypatch.setattr(config, "AI_API_KEY", secret)

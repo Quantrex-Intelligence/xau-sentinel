@@ -361,6 +361,41 @@ export interface ToolInfo {
   description: string;
 }
 
+/** Mirrors ai/memory/models.py's MemoryCategory (Stage 7). */
+export type MemoryCategory = "USER_PREFERENCE" | "STRATEGY_MEMORY" | "TRADE_LESSON" | "PATTERN_OBSERVATION";
+export type MemoryStatus = "ACTIVE" | "ARCHIVED";
+
+/** Mirrors ai/memory/schemas.py's MemoryRecordOut — a user-confirmed
+ * memory record. `source` is always "user_confirmed"; the app never sets
+ * or offers to set anything else. */
+export interface MemoryRecord {
+  id: number;
+  category: MemoryCategory;
+  content: string;
+  source: string;
+  status: MemoryStatus;
+  created_at: string;
+  updated_at: string;
+  strategy_version: string | null;
+}
+
+export interface MemoryCreateInput {
+  category: MemoryCategory;
+  content: string;
+  strategy_version?: string;
+}
+
+/** Mirrors ai/memory/schemas.py's MemoryUsedOut — one memory referenced for
+ * a chat turn, distinct from KnowledgeSource (project docs) and ContextSource
+ * (live deterministic facts): this is the user's own confirmed context. */
+export interface MemoryUsage {
+  id: number;
+  category: MemoryCategory;
+  excerpt: string;
+  similarity: number;
+  updated_at: string;
+}
+
 export interface ChatResponse {
   answer: string;
   conversation_id: string;
@@ -377,6 +412,9 @@ export interface ChatResponse {
    * replacing) `sources`/`knowledge_used`. Empty when the answer needed no
    * tool call. */
   tools_used: ToolUsage[];
+  /** User-confirmed trading memory referenced this turn, alongside (never
+   * replacing) the above. Empty when nothing active was relevant enough. */
+  memory_used: MemoryUsage[];
 }
 
 export interface AiConfig {

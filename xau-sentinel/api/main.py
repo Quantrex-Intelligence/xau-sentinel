@@ -10,9 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from ai.assistant import init_table as init_ai_messages_table
 from ai.knowledge.seed_documents import seed_if_empty as seed_knowledge_if_empty
 from ai.knowledge.store import init_table as init_knowledge_tables
+from ai.memory.store import init_table as init_memory_table
 from journal.database import init_db
 from risk.fundednext_journal import init_table as init_fundednext_context_table
-from api.routes import ai, alerts, fundednext, journal, knowledge, market, risk, settings, setup, strategy
+from api.routes import ai, alerts, fundednext, journal, knowledge, market, memory, risk, settings, setup, strategy
 from api import ws
 
 DEFAULT_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
@@ -25,6 +26,7 @@ async def _lifespan(app: FastAPI):
     init_ai_messages_table()
     init_knowledge_tables()
     seed_knowledge_if_empty()
+    init_memory_table()
     yield
 
 
@@ -52,6 +54,7 @@ def create_app() -> FastAPI:
     app.include_router(ai.router)
     app.include_router(strategy.router)
     app.include_router(knowledge.router)
+    app.include_router(memory.router)
     app.include_router(ws.router)
 
     return app

@@ -106,5 +106,13 @@ AI_KNOWLEDGE_CHUNK_OVERLAP = int(os.getenv("AI_KNOWLEDGE_CHUNK_OVERLAP", 100))
 # and guarantees the loop always terminates. See ai/assistant.py.
 AI_TOOL_MAX_ROUNDS = int(os.getenv("AI_TOOL_MAX_ROUNDS", 4))
 
+
+# --- Stage 7: Trading Memory ---
+# Retrieval thresholds for the user-confirmed memory layer, separate from
+# Stage 5's knowledge-base thresholds above (same shape, same reasoning —
+# see ai/memory/retrieval.py).
+AI_MEMORY_MIN_SIMILARITY = float(os.getenv("AI_MEMORY_MIN_SIMILARITY", 0.18))
+AI_MEMORY_TOP_K = int(os.getenv("AI_MEMORY_TOP_K", 3))
+
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"
