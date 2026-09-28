@@ -7,6 +7,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from ai.knowledge.schemas import KnowledgeSourceOut
+from ai.tools.schemas import ToolUsageOut
 
 
 class AnswerCategory(str, Enum):
@@ -53,6 +54,10 @@ class ChatResponseOut(BaseModel):
     # replacing) the deterministic sources above. Empty when nothing cleared
     # the relevance threshold — never a fabricated or forced match.
     knowledge_used: List[KnowledgeSourceOut] = []
+    # Stage 6: read-only tools the model actually called this turn, in call
+    # order — the UI's "Tools used" transparency panel renders this list
+    # directly. Empty when the answer needed no tool call.
+    tools_used: List[ToolUsageOut] = []
 
 
 class AiConfigOut(BaseModel):

@@ -99,5 +99,12 @@ AI_KNOWLEDGE_TOP_K = int(os.getenv("AI_KNOWLEDGE_TOP_K", 3))
 AI_KNOWLEDGE_CHUNK_SIZE = int(os.getenv("AI_KNOWLEDGE_CHUNK_SIZE", 800))
 AI_KNOWLEDGE_CHUNK_OVERLAP = int(os.getenv("AI_KNOWLEDGE_CHUNK_OVERLAP", 100))
 
+
+# --- Stage 6: AI Tool Calling ---
+# Caps how many LLM <-> tool round trips a single chat turn can take before
+# a final answer is forced with no more tools offered — bounds latency/cost
+# and guarantees the loop always terminates. See ai/assistant.py.
+AI_TOOL_MAX_ROUNDS = int(os.getenv("AI_TOOL_MAX_ROUNDS", 4))
+
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"

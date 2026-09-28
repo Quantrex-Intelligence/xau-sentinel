@@ -13,6 +13,7 @@ const response: ChatResponse = {
   model: "mock-deterministic-v1",
   created_at: "2026-01-01T00:00:00Z",
   knowledge_used: [],
+  tools_used: [],
 };
 
 describe("ChatMessage", () => {
@@ -41,6 +42,16 @@ describe("ChatMessage", () => {
     const turn: ChatTurn = { role: "assistant", content: withKnowledge.answer, response: withKnowledge };
     render(<ChatMessage turn={turn} />);
     expect(screen.getByText("Locked A+ Strategy Rules")).toBeInTheDocument();
+  });
+
+  it("renders tools used alongside the context indicator when present", () => {
+    const withTools: ChatResponse = {
+      ...response,
+      tools_used: [{ name: "get_current_setup", label: "Current Setup", data_available: true, timestamp: null }],
+    };
+    const turn: ChatTurn = { role: "assistant", content: withTools.answer, response: withTools };
+    render(<ChatMessage turn={turn} />);
+    expect(screen.getByText("Current Setup")).toBeInTheDocument();
   });
 
   it("renders a client-side error turn distinctly, never as a normal answer", () => {

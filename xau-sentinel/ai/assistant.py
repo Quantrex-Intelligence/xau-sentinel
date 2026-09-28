@@ -1,6 +1,6 @@
 """Orchestrates one chat turn: pick a provider -> build deterministic
-context -> assemble messages -> call the provider -> apply the safety net ->
-persist the turn -> return a typed response.
+context -> assemble messages -> run the tool-calling loop -> apply the
+safety net -> persist the turn -> return a typed response.
 
 The LLM never becomes a source of truth here: context_used and sources are
 built straight from ai/context.py's own AssembledContext, never parsed back
@@ -8,11 +8,20 @@ out of the model's prose (per Stage 3 spec section 10). Conversation history
 lives in its own table (ai_messages), added via CREATE TABLE IF NOT EXISTS —
 the frozen Stage 1 schema in journal/database.py is never touched, the same
 pattern risk/fundednext_journal.py already established.
+
+Stage 6 adds a bounded tool-calling loop: each round offers the provider the
+full tool registry; if it calls one or more tools, they're executed via
+ai/tools/executor.py and the results are fed back for another round, up to
+config.AI_TOOL_MAX_ROUNDS. A provider that never requests a tool (including
+every pre-Stage-6 test double, since ProviderResponse.tool_calls defaults to
+empty) exits the loop after exactly one call — identical to the pre-Stage-6
+single-shot behavior.
 """
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
+import config
 from journal.database import get_connection
 from ai import context as context_builder
 from ai import prompts
@@ -20,6 +29,9 @@ from ai.knowledge import retrieval as knowledge_retrieval
 from ai.knowledge.schemas import KnowledgeSourceOut
 from ai.providers import get_provider
 from ai.schemas import AnswerCategory, ChatResponseOut, ContextSourceOut
+from ai.tools import execute as execute_tool
+from ai.tools.registry import get_spec as get_tool_spec, to_provider_format as tool_specs_for_provider
+from ai.tools.schemas import ToolUsageOut
 
 TABLE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS ai_messages (
@@ -85,7 +97,7 @@ def chat(message: str, conversation_id: Optional[str] = None,
     history = _load_history(conversation_id)
     messages = prompts.build_messages(history, message)
 
-    response = provider.chat(system_prompt, messages)
+    response, tools_used = _run_tool_loop(provider, system_prompt, messages)
 
     answer_text = response.text
     overall_category = AnswerCategory.INTERPRETATION
@@ -127,4 +139,52 @@ def chat(message: str, conversation_id: Optional[str] = None,
         model=response.model,
         created_at=datetime.now(timezone.utc).isoformat(),
         knowledge_used=knowledge_used,
+        tools_used=tools_used,
     )
+
+
+def _run_tool_loop(provider, system_prompt: str, messages: List[dict]):
+    """Runs the bounded LLM <-> tool round trip for one turn. A provider
+    that never returns tool_calls (every pre-Stage-6 provider/test double)
+    exits after exactly one call, with `messages` unchanged from what it
+    would have been pre-Stage-6 — the backward-compatibility guarantee this
+    loop is built around.
+
+    Mutates `messages` in place by appending the transient tool-use/
+    tool-result turns for this call only; none of that is persisted to the
+    ai_messages history table (see _save_turn — only the final answer is)."""
+    tool_specs = tool_specs_for_provider()
+    tools_used: List[ToolUsageOut] = []
+    response = None
+
+    for _round in range(config.AI_TOOL_MAX_ROUNDS):
+        response = provider.chat(system_prompt, messages, tools=tool_specs)
+        if not response.tool_calls:
+            return response, tools_used
+
+        messages.append({
+            "role": "assistant",
+            "content": response.raw_content if response.raw_content is not None else response.text,
+            "tool_calls": response.tool_calls,
+        })
+        for call in response.tool_calls:
+            result = execute_tool(call.name, call.arguments)
+            spec = get_tool_spec(call.name)
+            tools_used.append(ToolUsageOut(
+                name=call.name,
+                label=spec.label if spec else call.name,
+                data_available=bool(result.get("data_available", False)),
+                timestamp=result.get("timestamp"),
+            ))
+            messages.append({
+                "role": "tool_result",
+                "tool_call_id": call.id,
+                "name": call.name,
+                "content": result,
+            })
+    else:
+        # Round cap reached and the last response still requested a tool —
+        # force one final, tool-free call so the turn always ends in text.
+        response = provider.chat(system_prompt, messages, tools=None)
+
+    return response, tools_used

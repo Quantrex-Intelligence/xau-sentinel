@@ -344,6 +344,23 @@ export interface KnowledgeDocument {
   created_at: string;
 }
 
+/** Mirrors ai/tools/schemas.py's ToolUsageOut (Stage 6) — one read-only
+ * tool the assistant actually called this turn, in call order. */
+export interface ToolUsage {
+  name: string;
+  label: string;
+  data_available: boolean;
+  timestamp: string | null;
+}
+
+/** Mirrors api/routes/ai.py's ToolInfoOut — GET /api/ai/tools introspection,
+ * never execution. */
+export interface ToolInfo {
+  name: string;
+  label: string;
+  description: string;
+}
+
 export interface ChatResponse {
   answer: string;
   conversation_id: string;
@@ -356,6 +373,10 @@ export interface ChatResponse {
   /** Reference knowledge retrieved for this turn, alongside (never
    * replacing) `sources` above. Empty when nothing was relevant enough. */
   knowledge_used: KnowledgeSource[];
+  /** Read-only tools the model actually called this turn, alongside (never
+   * replacing) `sources`/`knowledge_used`. Empty when the answer needed no
+   * tool call. */
+  tools_used: ToolUsage[];
 }
 
 export interface AiConfig {

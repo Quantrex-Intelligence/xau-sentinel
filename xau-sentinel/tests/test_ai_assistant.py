@@ -22,8 +22,8 @@ class _RecordingProvider(BaseProvider):
         self.reply = reply
         self.calls: List[dict] = []
 
-    def chat(self, system: str, messages: List[dict]) -> ProviderResponse:
-        self.calls.append({"system": system, "messages": messages})
+    def chat(self, system: str, messages: List[dict], tools=None) -> ProviderResponse:
+        self.calls.append({"system": system, "messages": messages, "tools": tools})
         return ProviderResponse(text=self.reply, provider=self.name, model=self.model)
 
 
@@ -31,7 +31,7 @@ class _FailingProvider(BaseProvider):
     name = "fake"
     model = "fake-model"
 
-    def chat(self, system: str, messages: List[dict]) -> ProviderResponse:
+    def chat(self, system: str, messages: List[dict], tools=None) -> ProviderResponse:
         raise ProviderRequestError("simulated network failure")
 
 
@@ -184,6 +184,17 @@ def test_knowledge_used_is_populated_when_a_relevant_document_exists(monkeypatch
     assert result.knowledge_used[0].category == "strategy_rules"
     # Unaffected by the addition — same as the empty-KB case above.
     assert set(result.context_used) == {"Market Structure", "Setup", "FundedNext Risk"}
+
+
+def test_tools_used_defaults_to_empty_list_for_a_provider_that_never_calls_a_tool(monkeypatch):
+    """Stage 6 regression: chat()'s pre-Stage-6 return shape and behavior
+    are completely unaffected when the provider never requests a tool —
+    the same guarantee test_knowledge_used_is_empty_list_... already proves
+    for Stage 5's knowledge_used field."""
+    _use_provider(monkeypatch, _RecordingProvider(reply="a helpful, safe answer"))
+    result = assistant.chat("Question")
+    assert result.tools_used == []
+    assert result.answer == "a helpful, safe answer"
 
 
 def test_secret_api_key_never_leaks_into_the_response(monkeypatch):

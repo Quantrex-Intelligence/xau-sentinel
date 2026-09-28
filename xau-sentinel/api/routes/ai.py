@@ -3,14 +3,31 @@ and configuration failures map to specific HTTP statuses (not a bare 500)
 so the frontend can show a clear message instead of a generic error, per
 the Stage 3 spec's "clear configuration error rather than crash" rule."""
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 import config
 from ai import assistant
 from ai.providers import get_provider
 from ai.providers.base import ProviderConfigError, ProviderRequestError, ProviderResponseError
 from ai.schemas import AiConfigOut, ChatRequestIn, ChatResponseOut
+from ai.tools.registry import TOOL_SPECS
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+class ToolInfoOut(BaseModel):
+    name: str
+    label: str
+    description: str
+
+
+@router.get("/tools", response_model=list[ToolInfoOut])
+def list_tools():
+    """Read-only introspection of the tool registry — lists what the
+    assistant CAN call, never executes anything. Mirrors the transparency
+    Stage 5's GET /api/ai/knowledge/documents already gives the seeded
+    knowledge base."""
+    return [ToolInfoOut(name=s.name, label=s.label, description=s.description) for s in TOOL_SPECS.values()]
 
 
 @router.get("/config", response_model=AiConfigOut)

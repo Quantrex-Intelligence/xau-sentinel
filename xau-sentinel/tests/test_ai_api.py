@@ -76,7 +76,7 @@ def test_chat_endpoint_returns_502_on_provider_request_failure(api_client, monke
         name = "fake"
         model = "fake-model"
 
-        def chat(self, system, messages):
+        def chat(self, system, messages, tools=None):
             raise ProviderRequestError("upstream timed out")
 
     monkeypatch.setattr(assistant, "get_provider", lambda: _FailingProvider())
@@ -174,6 +174,44 @@ def test_chat_response_knowledge_used_is_empty_for_an_off_topic_message(api_clie
     resp = api_client.post("/api/ai/chat", json={"message": "what is the capital of France?"})
     assert resp.status_code == 200
     assert resp.json()["knowledge_used"] == []
+
+
+# ---------------------------------------------------------------------------
+# Stage 6: AI tool calling
+# ---------------------------------------------------------------------------
+
+def test_tools_endpoint_lists_the_registered_tools(api_client):
+    resp = api_client.get("/api/ai/tools")
+    assert resp.status_code == 200
+    tools = resp.json()
+    assert len(tools) >= 11
+    names = {t["name"] for t in tools}
+    assert "get_market_state" in names
+    assert "get_risk_status" in names
+    assert "search_journal" in names
+    for t in tools:
+        assert t["label"]
+        assert t["description"]
+
+
+def test_chat_response_includes_tools_used_field(api_client):
+    resp = api_client.post("/api/ai/chat", json={"message": "What is the current market structure?"})
+    assert resp.status_code == 200
+    assert "tools_used" in resp.json()
+
+
+def test_chat_response_tools_used_is_empty_when_mock_provider_offers_no_matching_tool(api_client):
+    resp = api_client.post("/api/ai/chat", json={"message": "hello there"})
+    assert resp.status_code == 200
+    assert resp.json()["tools_used"] == []
+
+
+def test_chat_response_tools_used_populated_for_a_setup_question_in_mock_mode(api_client):
+    resp = api_client.post("/api/ai/chat", json={"message": "Why is this setup only developing?"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["tools_used"]) == 1
+    assert body["tools_used"][0]["name"] == "get_current_setup"
 
 
 def test_add_user_note_endpoint_persists_and_is_listed(api_client):

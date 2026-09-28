@@ -75,6 +75,7 @@ def _default_thresholds(monkeypatch):
     monkeypatch.setattr(config, "AI_STRATEGY_SL_BUFFER", 0.30)
     monkeypatch.setattr(config, "AI_STRATEGY_MIN_RR", 3.0)
     monkeypatch.setattr(config, "AI_STRATEGY_FUNDEDNEXT_MAX_DAILY_LOSS_USED_PCT", 50.0)
+    monkeypatch.setattr(config, "AI_TOOL_MAX_ROUNDS", 4)
 
 
 @pytest.fixture

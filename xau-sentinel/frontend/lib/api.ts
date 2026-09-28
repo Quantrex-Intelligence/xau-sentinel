@@ -24,6 +24,7 @@ import type {
   StrategyEvaluation,
   Structure,
   Timeframe,
+  ToolInfo,
   Trade,
   TradeCloseInput,
   TradeCreateInput,
@@ -102,6 +103,7 @@ export const api = {
   aiChat: (payload: ChatRequest) =>
     request<ChatResponse>("/api/ai/chat", { method: "POST", body: JSON.stringify(payload) }),
   knowledgeDocuments: () => request<KnowledgeDocument[]>("/api/ai/knowledge/documents"),
+  aiTools: () => request<ToolInfo[]>("/api/ai/tools"),
 
   strategyAPlus: () => request<StrategyEvaluation>("/api/strategy/aplus"),
 };

@@ -51,6 +51,34 @@ def get_account_snapshot() -> AccountSnapshot:
         return AccountSnapshot(balance=0.0, equity=0.0, source="live", available=False, error=str(exc))
 
 
+def get_open_positions() -> Optional[List[dict]]:
+    """Currently open positions — mock-labeled synthetic data in MODE=mock,
+    real (strictly read-only — positions_get() only, never an
+    order/close/modify call) in MODE=live. None when genuinely unavailable
+    (MT5 not connected), never a fabricated value. New in Stage 6: this app
+    has never read live positions before (Stage 2's risk monitor only reads
+    balance/equity and closed-deal history)."""
+    if config.IS_MOCK:
+        return _mock_open_positions()
+
+    if mt5 is None or not connection.is_connected():
+        return None
+    try:
+        positions = mt5.positions_get(symbol=config.TRADING_SYMBOL)
+        if positions is None:
+            return []
+        return [
+            {
+                "ticket": p.ticket, "symbol": p.symbol, "direction": "BUY" if p.type == 0 else "SELL",
+                "volume": p.volume, "price_open": p.price_open, "price_current": p.price_current,
+                "profit": p.profit, "sl": p.sl, "tp": p.tp,
+            }
+            for p in positions
+        ]
+    except Exception:  # noqa: BLE001 - any MT5 hiccup must degrade, never crash
+        return None
+
+
 def get_daily_pnl_history(days: int = 10) -> Optional[List[tuple]]:
     """Returns [(server_local_date, realized_pnl), ...] for the last `days`
     calendar days (server time), oldest first — used for min-trading-days
@@ -94,6 +122,24 @@ def _mock_account_snapshot() -> AccountSnapshot:
     balance = initial + realized_today
     equity = balance + floating
     return AccountSnapshot(balance=round(balance, 2), equity=round(equity, 2), source="mock")
+
+
+def _mock_open_positions() -> List[dict]:
+    """Deterministic per-day mock — usually empty (this app never places
+    trades on the user's behalf), occasionally shows one synthetic open
+    position so the tool/UI has something real to render in a demo."""
+    today = server_now().date().isoformat()
+    rng = np.random.default_rng(_mock_seed(f"positions-{today}"))
+    if rng.random() >= 0.3:
+        return []
+    price = 2650.0 + float(rng.normal(0, 5))
+    direction = "BUY" if rng.random() < 0.5 else "SELL"
+    return [{
+        "ticket": int(rng.integers(100000, 999999)), "symbol": config.TRADING_SYMBOL, "direction": direction,
+        "volume": 0.1, "price_open": round(price, 2),
+        "price_current": round(price + float(rng.normal(0, 2)), 2),
+        "profit": round(float(rng.normal(0, 20)), 2), "sl": None, "tp": None,
+    }]
 
 
 def _mock_daily_pnl_history(days: int) -> List[tuple]:

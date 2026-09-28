@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import type { ChatResponse } from "@/lib/types";
 import { ContextIndicator } from "./context-indicator";
 import { KnowledgeSources } from "./knowledge-sources";
+import { ToolsUsed } from "./tools-used";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -32,6 +33,7 @@ export function ChatMessage({ turn }: { turn: ChatTurn }) {
         <div className="max-w-[85%] w-full">
           <ContextIndicator sources={turn.response.sources} category={turn.response.category} />
           <KnowledgeSources sources={turn.response.knowledge_used} />
+          <ToolsUsed tools={turn.response.tools_used} />
         </div>
       )}
     </div>
