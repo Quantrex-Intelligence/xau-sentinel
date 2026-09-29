@@ -120,6 +120,14 @@ def _default_thresholds(monkeypatch):
     monkeypatch.setattr(config, "NOTIFICATION_PROVIDER", "mock")
     monkeypatch.setattr(config, "TRADE_REVIEW_MIN_PATTERN_SAMPLE", 3)
     monkeypatch.setattr(config, "STRATEGY_ANALYTICS_MIN_SAMPLE", 5)
+    monkeypatch.setattr(config, "DIGEST_ENABLED", False)
+    monkeypatch.setattr(config, "DIGEST_WEEKLY_ENABLED", False)
+    monkeypatch.setattr(config, "DIGEST_MONTHLY_ENABLED", False)
+    monkeypatch.setattr(config, "DIGEST_WEEKLY_DAY", "MONDAY")
+    monkeypatch.setattr(config, "DIGEST_WEEKLY_TIME", "09:00")
+    monkeypatch.setattr(config, "DIGEST_MONTHLY_DAY", 1)
+    monkeypatch.setattr(config, "DIGEST_MONTHLY_TIME", "09:00")
+    monkeypatch.setattr(config, "DIGEST_POLL_INTERVAL_SECONDS", 300)
 
 
 @pytest.fixture(autouse=True)

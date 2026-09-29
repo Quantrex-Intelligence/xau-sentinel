@@ -220,3 +220,16 @@ TRADE_REVIEW_MIN_PATTERN_SAMPLE = int(os.getenv("TRADE_REVIEW_MIN_PATTERN_SAMPLE
 # many closed trades is labeled INSUFFICIENT SAMPLE; the raw count is
 # still shown, never hidden. See ai/strategy_analytics/.
 STRATEGY_ANALYTICS_MIN_SAMPLE = int(os.getenv("STRATEGY_ANALYTICS_MIN_SAMPLE", 5))
+
+# --- Periodic Trading Digest (Stage 18) — a scheduled weekly/monthly
+# reporting layer over Stage 16/17's own computations. DIGEST_ENABLED is
+# the master safe default (false); the weekly/monthly sub-flags gate each
+# schedule independently once the master flag is on. See ai/digest/.
+DIGEST_ENABLED = os.getenv("DIGEST_ENABLED", "false").strip().lower() == "true"
+DIGEST_WEEKLY_ENABLED = os.getenv("DIGEST_WEEKLY_ENABLED", "false").strip().lower() == "true"
+DIGEST_MONTHLY_ENABLED = os.getenv("DIGEST_MONTHLY_ENABLED", "false").strip().lower() == "true"
+DIGEST_WEEKLY_DAY = os.getenv("DIGEST_WEEKLY_DAY", "MONDAY").strip().upper()
+DIGEST_WEEKLY_TIME = os.getenv("DIGEST_WEEKLY_TIME", "09:00").strip()
+DIGEST_MONTHLY_DAY = int(os.getenv("DIGEST_MONTHLY_DAY", 1))
+DIGEST_MONTHLY_TIME = os.getenv("DIGEST_MONTHLY_TIME", "09:00").strip()
+DIGEST_POLL_INTERVAL_SECONDS = int(os.getenv("DIGEST_POLL_INTERVAL_SECONDS", 300))

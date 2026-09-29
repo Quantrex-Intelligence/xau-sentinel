@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import config
 from ai.assistant import init_table as init_ai_messages_table
+from ai.digest import service as digest_service
+from ai.digest.store import init_table as init_digest_table
 from ai.knowledge.seed_documents import seed_if_empty as seed_knowledge_if_empty
 from ai.knowledge.store import init_table as init_knowledge_tables
 from ai.memory.store import init_table as init_memory_table
@@ -22,7 +24,7 @@ from ai.trade_review.store import init_table as init_trade_review_table
 from journal.database import init_db
 from risk.fundednext_journal import init_table as init_fundednext_context_table
 from api.routes import (
-    ai, alerts, explanations, fundednext, journal, knowledge, market, market_intelligence, memory,
+    ai, alerts, digest, explanations, fundednext, journal, knowledge, market, market_intelligence, memory,
     monitoring, notifications, risk, settings, setup, similarity, strategy, strategy_analytics, trade_review,
 )
 from api import ws
@@ -42,6 +44,7 @@ async def _lifespan(app: FastAPI):
     init_notifications_table()
     init_explanations_table()
     init_trade_review_table()
+    init_digest_table()
 
     task = None
     if config.MONITORING_ENABLED:
@@ -49,11 +52,16 @@ async def _lifespan(app: FastAPI):
     delivery_task = None
     if config.TELEGRAM_ENABLED:
         delivery_task = asyncio.create_task(notification_delivery.run_forever())
+    digest_task = None
+    if config.DIGEST_ENABLED:
+        digest_task = asyncio.create_task(digest_service.run_forever())
     yield
     if task is not None:
         task.cancel()
     if delivery_task is not None:
         delivery_task.cancel()
+    if digest_task is not None:
+        digest_task.cancel()
 
 
 def create_app() -> FastAPI:
@@ -88,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(explanations.router)
     app.include_router(trade_review.router)
     app.include_router(strategy_analytics.router)
+    app.include_router(digest.router)
     app.include_router(ws.router)
 
     return app
