@@ -171,9 +171,42 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
 - **Potential fix:** Thread an explicit staleness check into `evaluate_current_setup()`/`detect_setup()`, surfaced as part of the result rather than only in a separate UI badge.
 
 ### VAL-012 — Journal `trade_date` (UTC) and `trade_time` (local) are captured inconsistently, and can misdate a trade permanently
+- **Status: Resolved in Stage 22** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `frontend/components/journal/new-trade-form.tsx` (`trade_date: now.toISOString().slice(0,10)` — UTC; `trade_time: now.toTimeString().slice(0,8)` — local).
 - **Actual:** For a user outside UTC, a trade entered in the evening (behind UTC) or early morning (ahead of UTC) can be stored a full calendar day off from when it actually happened. Since entry-time journal fields are immutable by design, this is permanent, and it also skews which digest period (VAL-004) a trade falls into. The Streamlit UI (`ui/journal.py`) uses local date and local time for the same fields — the two entry paths disagree with each other and with "Today P/L" (which uses UTC date elsewhere).
-- **Potential fix:** Use one consistent timezone (UTC, matching the rest of the system's internal-UTC convention) for both `trade_date` and `trade_time` capture in the Next.js form.
+- ~~**Potential fix:** Use one consistent timezone (UTC, matching the rest of the system's internal-UTC convention) for both `trade_date` and `trade_time` capture in the Next.js form.~~ *(Superseded by the Stage 22 fix below — the project's existing session timezone, not hardcoded UTC, and all three write/read points, not only the Next.js form.)*
+- **Root cause (confirmed in Stage 22, traced through every write and read of `trade_date`/`trade_time`):**
+  three independent points resolved "now" against four different clocks, none of them the project's
+  configured session timezone: (1) `frontend/components/journal/new-trade-form.tsx` sent the browser's UTC
+  calendar date with the browser's local wall-clock time; (2) `ui/journal.py` defaulted both fields to the
+  Streamlit machine's local date/time; (3) `journal/trades.py::today_r_total()` defaulted "today" to the UTC
+  date. The backend (`api/routes/journal.py::create_trade()` → `journal.trades.create_trade()`) stored
+  whatever it was given verbatim. Meanwhile `ai/digest/service.py` already interprets `trade_date` as a
+  `config.SESSION_TIMEZONE`-local date (its `_now()` and period bounds use that zone), so the writers never
+  honored the convention the reader assumed. Note: the stage brief's "MT5 deal time → journal creation" step
+  does not exist in this codebase — `journal.trades.create_trade()` has exactly two production callers (the
+  Next.js route and the Streamlit form), neither derived from `mt5.history_deals_get()`.
+- **Fix:** one journal clock, `journal/trades.py::session_now()` =
+  `datetime.now(ZoneInfo(config.SESSION_TIMEZONE))` (the same boundary as the digest's `_now()`).
+  `api/routes/journal.py::create_trade()` now captures `trade_date`/`trade_time` server-side from a single
+  `session_now()` call (both fields split from the same aware instant) whenever the client omits them, and
+  `new-trade-form.tsx` no longer computes them (the form was already documented as fully automatic capture).
+  For API compatibility (the E2E checklists and any backfill client), `TradeCreateIn`/`TradeCreateInput`
+  keep both fields as optional: an explicit pair is stored as a session-local backfill, and supplying only
+  one is rejected with 422, since it would mix client and server clocks. `today_r_total()`'s default uses
+  `session_now().date()`. `ui/journal.py`'s date/time pickers stay
+  editable (backfilling is legitimate) but default to `session_now()` instead of the machine clock. No schema
+  change, no change to `create_trade()`/`close_trade()`/`list_trades()`/`get_trade()`, analytics formulas,
+  digest period math, or strategy logic.
+- **Regression coverage:** new `tests/test_journal_timezone.py` (all instants frozen via monkeypatched
+  `session_now`): `session_now()` is aware and in the configured zone across UTC/New York/Tokyo/Nicosia and
+  matches the digest clock; API-created trades get the session-local date when UTC is already tomorrow
+  (New York 23:55) and when UTC is still yesterday (Tokyo 00:05); date+time reconstruct the exact original
+  instant; an explicit date+time pair is stored as given, a lone date or time is rejected (422, nothing
+  stored); the Next.js form no longer computes either field; one second either side of session midnight;
+  `today_r_total()` default follows the session-local day, not UTC; end-to-end API → `build_digest()` proves
+  a Sunday 23:55 New York trade lands in its own week and a Monday 00:05 trade in the next; Streamlit form
+  defaults come from `session_now()`, never the machine clock.
 
 ---
 

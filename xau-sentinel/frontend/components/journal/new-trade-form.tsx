@@ -39,11 +39,10 @@ export function NewTradeForm({ onCreated }: { onCreated: () => void }) {
     }
     setSubmitting(true);
     setError(null);
-    const now = new Date();
     try {
+      // The trade's date and time are captured server-side in the project's
+      // session timezone so both always describe the same instant.
       await api.createTrade({
-        trade_date: now.toISOString().slice(0, 10),
-        trade_time: now.toTimeString().slice(0, 8),
         direction,
         entry: Number(entry),
         stop_loss: Number(stopLoss),

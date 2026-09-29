@@ -2,10 +2,24 @@
 import json
 from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+import config
 from journal.database import get_connection
+
+
+def session_now() -> datetime:
+    """The ONE boundary for 'what date/time is it right now' from the
+    journal's perspective (Stage 22, see docs/validation/ISSUE_LOG.md
+    VAL-012) -- config.SESSION_TIMEZONE, the same convention
+    ai/digest/service.py::_now() already uses for period-boundary math.
+    Every trade_date/trade_time capture point and every "today" journal
+    query must derive from this single function, never datetime.now()/
+    datetime.now(timezone.utc)/a client clock directly, so writers and
+    readers of trade_date/trade_time agree on the same calendar day."""
+    return datetime.now(ZoneInfo(config.SESSION_TIMEZONE))
 
 TRADE_FIELDS = [
     "trade_date", "trade_time", "symbol", "direction", "session", "entry", "stop_loss",
@@ -183,8 +197,9 @@ def recent_events(limit: int = 10) -> pd.DataFrame:
 
 def today_r_total(today: Optional[str] = None) -> float:
     """Sums r_multiple across closed trades for the given date (default:
-    today, UTC) — powers the Risk panel's "Today P/L" figure."""
-    day = today or datetime.now(timezone.utc).date().isoformat()
+    today, in config.SESSION_TIMEZONE — see session_now(), Stage 22/
+    VAL-012) — powers the Risk panel's "Today P/L" figure."""
+    day = today or session_now().date().isoformat()
     with get_connection() as conn:
         row = conn.execute(
             """SELECT COALESCE(SUM(r_multiple), 0) AS total FROM trades

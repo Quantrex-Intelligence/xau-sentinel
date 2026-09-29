@@ -5,7 +5,7 @@ contract, not to add or reshape any information the engine doesn't already
 produce."""
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class CandleOut(BaseModel):
@@ -106,8 +106,12 @@ class MarketSnapshotOut(BaseModel):
 
 
 class TradeCreateIn(BaseModel):
-    trade_date: str
-    trade_time: str
+    # Omit both to have the server capture them from one instant in
+    # config.SESSION_TIMEZONE (Stage 22/VAL-012); supply both only for an
+    # explicit session-local backfill. Supplying just one would pair values
+    # from two different clocks, so it's rejected.
+    trade_date: Optional[str] = None
+    trade_time: Optional[str] = None
     direction: str
     entry: float
     stop_loss: float
@@ -115,6 +119,12 @@ class TradeCreateIn(BaseModel):
     planned_rr: Optional[float] = None
     setup: Optional[str] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _date_and_time_together(self):
+        if (self.trade_date is None) != (self.trade_time is None):
+            raise ValueError("trade_date and trade_time must be supplied together or both omitted")
+        return self
 
 
 class TradeCloseIn(BaseModel):

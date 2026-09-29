@@ -47,9 +47,18 @@ def get_trade(trade_id: int):
 def create_trade(payload: TradeCreateIn):
     snapshot = build_snapshot()
     structure = snapshot.structure
+    # By default trade_date/trade_time are captured here from ONE instant in
+    # config.SESSION_TIMEZONE (Stage 22, VAL-012) — the browser can't know
+    # that zone. An explicit pair (validated together in TradeCreateIn) is
+    # an intentional session-local backfill and is stored as given.
+    if payload.trade_date is None:
+        now = trades_repo.session_now()
+        trade_date, trade_time = now.date().isoformat(), now.strftime("%H:%M:%S")
+    else:
+        trade_date, trade_time = payload.trade_date, payload.trade_time
 
     trade_data = {
-        "trade_date": payload.trade_date, "trade_time": payload.trade_time,
+        "trade_date": trade_date, "trade_time": trade_time,
         "symbol": config.TRADING_SYMBOL, "direction": payload.direction,
         "session": snapshot.session, "entry": payload.entry, "stop_loss": payload.stop_loss,
         "take_profit": payload.take_profit, "planned_rr": payload.planned_rr,

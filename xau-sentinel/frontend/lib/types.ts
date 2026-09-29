@@ -167,8 +167,11 @@ export interface Trade {
 }
 
 export interface TradeCreateInput {
-  trade_date: string;
-  trade_time: string;
+  // Omitted by the New Trade form: the server captures both from one
+  // instant in the project's session timezone. Only send both, together,
+  // for an explicit session-local backfill.
+  trade_date?: string;
+  trade_time?: string;
   direction: "BUY" | "SELL";
   entry: number;
   stop_loss: number;

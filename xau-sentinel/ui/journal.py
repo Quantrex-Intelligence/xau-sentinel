@@ -1,6 +1,5 @@
 """Journal page: manual trade entry (with automatic market-context capture),
 trade table + detail view, and simple analytics."""
-from datetime import datetime, date, time
 from pathlib import Path
 
 import streamlit as st
@@ -45,10 +44,14 @@ def render_new_trade_form(context_snapshot: dict):
     render_context_summary(context_snapshot)
     st.divider()
 
+    # Defaults come from the one journal clock (config.SESSION_TIMEZONE,
+    # Stage 22/VAL-012) so a trade logged "now" gets the same date/time the
+    # API path would assign; the inputs stay editable for backfilling.
+    now = trades_repo.session_now()
     with st.form("new_trade_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
-        trade_date = c1.date_input("Date", value=date.today())
-        trade_time = c2.time_input("Time", value=datetime.now().time().replace(microsecond=0))
+        trade_date = c1.date_input("Date", value=now.date())
+        trade_time = c2.time_input("Time", value=now.time().replace(microsecond=0))
         direction = c3.selectbox("Direction", ["BUY", "SELL"])
 
         c4, c5, c6 = st.columns(3)
