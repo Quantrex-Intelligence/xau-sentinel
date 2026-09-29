@@ -234,6 +234,29 @@ def contains_predictive_probability_claim(text: str) -> bool:
     return any(p.search(normalized) for p in _PREDICTIVE_PROBABILITY_PATTERNS)
 
 
+_HEADER_MARKER = re.compile(r"#{3,}")
+
+
+def _inline_untrusted(value) -> str:
+    """VAL-037: a user-submitted title/source/version is rendered inside a
+    `### ... ###` section header. Collapse it to one line and break up any
+    `###` run, so it can neither close that header early nor start a
+    header of its own that looks like a real CONTEXT section."""
+    text = " ".join(str(value).split())
+    return _HEADER_MARKER.sub(lambda m: "#" * 2, text)
+
+
+def _quote_untrusted(text: str) -> str:
+    """VAL-037: every line of a user-submitted knowledge/memory body is
+    prefixed with "> ", so nothing inside it can start at column 0 the way
+    the prompt's own block headers (`### ... ###`, CONTEXT, RETRIEVED
+    KNOWLEDGE, TRADING MEMORY) do — the body always reads as quoted
+    material inside its section, never as a new section. `###` runs are
+    broken up too, so a quoted line can't imitate a section header either."""
+    text = _HEADER_MARKER.sub(lambda m: "#" * 2, str(text))
+    return "\n".join(f"> {line}" if line.strip() else ">" for line in text.splitlines())
+
+
 def _render_knowledge_block(chunks: List[RetrievedChunk]) -> str:
     """Physically separate from and rendered AFTER the CONTEXT block, with
     its own explicit framing — the model sees a clear boundary between
@@ -248,8 +271,11 @@ def _render_knowledge_block(chunks: List[RetrievedChunk]) -> str:
         "",
     ]
     for c in chunks:
-        parts.append(f"### {c.category} — {c.title} (source: {c.source}, v{c.version}) ###")
-        parts.append(c.text)
+        parts.append(
+            f"### {_inline_untrusted(c.category)} — {_inline_untrusted(c.title)} "
+            f"(source: {_inline_untrusted(c.source)}, v{_inline_untrusted(c.version)}) ###"
+        )
+        parts.append(_quote_untrusted(c.text))
         parts.append("")
     return "\n".join(parts).strip()
 
@@ -270,8 +296,9 @@ def _render_memory_block(memories: List[RetrievedMemory]) -> str:
     ]
     for m in memories:
         version_txt = f", strategy version {m.strategy_version}" if m.strategy_version else ""
+        version_txt = _inline_untrusted(version_txt)
         parts.append(f"### {m.category.value} (last updated {m.updated_at}{version_txt}) ###")
-        parts.append(m.content)
+        parts.append(_quote_untrusted(m.content))
         parts.append("")
     return "\n".join(parts).strip()
 

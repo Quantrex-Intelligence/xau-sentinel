@@ -36,6 +36,18 @@ DEFAULT_SCOPES = ("market", "risk")
 
 JOURNAL_HISTORY_LIMIT = 10
 
+# VAL-038: structure, zones, sweeps, displacement and the setup are all built
+# from the same candles as the price line, so when that data is stale every
+# one of them is stale too — the warning can't live on the price line alone.
+STALE_DERIVED_NOTE = (
+    "DATA FRESHNESS: STALE — market data has not updated recently; everything in this "
+    "section was computed from that same stale data and may not reflect the current market."
+)
+
+
+def _is_stale(snapshot) -> bool:
+    return bool(snapshot.price is not None and snapshot.price.stale)
+
 
 @dataclass
 class ContextSection:
@@ -73,7 +85,8 @@ def _market_section_from_snapshot(snapshot) -> ContextSection:
         reason = snapshot.data_error or "Market data unavailable."
         return ContextSection(MARKET_LABEL, available=False, text=reason, detail=reason)
 
-    lines = [
+    lines = [STALE_DERIVED_NOTE] if _is_stale(snapshot) else []
+    lines += [
         f"Mode: {snapshot.connection.mode.upper()} ({snapshot.connection.label})",
         f"Price: {snapshot.price.price:.2f} (bid {snapshot.price.bid:.2f} / ask {snapshot.price.ask:.2f}, "
         f"spread {snapshot.price.spread:.2f})" + (" — STALE, may not reflect the current market" if snapshot.price.stale else ""),
@@ -110,7 +123,8 @@ def _market_section_from_snapshot(snapshot) -> ContextSection:
 
     return ContextSection(
         MARKET_LABEL, available=True, text="\n".join(lines),
-        detail=f"{snapshot.connection.mode.upper()} · price {snapshot.price.price:.2f}",
+        detail=f"{snapshot.connection.mode.upper()} · price {snapshot.price.price:.2f}"
+               + (" · STALE data" if _is_stale(snapshot) else ""),
     )
 
 
@@ -124,7 +138,8 @@ def _setup_section_from_snapshot(snapshot) -> ContextSection:
         f"{k}={'confirmed' if v is True else 'waiting'}" for k, v in setup.checklist.items()
     )
     direction_txt = f" ({setup.direction})" if setup.direction else ""
-    lines = [
+    lines = [STALE_DERIVED_NOTE] if _is_stale(snapshot) else []
+    lines += [
         f"Setup state: {setup.state}{direction_txt} — {setup.reason}",
         f"Checklist: {checklist_txt}" if checklist_txt else "Checklist: n/a",
     ]
@@ -135,8 +150,8 @@ def _setup_section_from_snapshot(snapshot) -> ContextSection:
             f"entry zone {setup.entry_zone}, SL {setup.stop_loss}, TP {setup.take_profit}, {rr_txt}"
         )
 
-    return ContextSection(SETUP_LABEL, available=True, text="\n".join(lines),
-                           detail=f"{setup.state}{direction_txt}")
+    detail = f"{setup.state}{direction_txt}" + (" · STALE data" if _is_stale(snapshot) else "")
+    return ContextSection(SETUP_LABEL, available=True, text="\n".join(lines), detail=detail)
 
 
 def build_risk_section() -> ContextSection:

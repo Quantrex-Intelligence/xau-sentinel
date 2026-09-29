@@ -175,13 +175,21 @@ def market_intelligence_summary(evidence: ContextualEvidence) -> MarketIntellige
     )
 
 
+def _outcome_label(outcome) -> str:
+    """One casing for every outcome (VAL-040): a closed trade's stored
+    result is already uppercase (WIN/LOSS/BE), so OPEN/UNKNOWN match it."""
+    if outcome.result:
+        return outcome.result.upper()
+    return "OPEN" if outcome.status == "OPEN" else "UNKNOWN"
+
+
 def historical_context(evidence: ContextualEvidence) -> str:
     if not evidence.similarity_relevant or evidence.similarity is None or not evidence.similarity.matches:
         return f"Historical similarity evidence is limited — no sufficiently similar past setups found. {_HISTORICAL_DESCRIPTIVE_NOTE}"
 
     lines = []
     for m in evidence.similarity.matches[:3]:
-        outcome = m.outcome.result or ("open" if m.outcome.status == "OPEN" else "unknown")
+        outcome = _outcome_label(m.outcome)
         lines.append(f"Trade #{m.trade_id} ({m.similarity * 100:.0f}% similar, outcome: {outcome})")
     return "; ".join(lines) + f". {_HISTORICAL_DESCRIPTIVE_NOTE}"
 
@@ -254,7 +262,7 @@ def render_for_llm(evidence: ContextualEvidence) -> str:
     if evidence.similarity_relevant and evidence.similarity:
         parts.append(f"Historical similarity ({_HISTORICAL_DESCRIPTIVE_NOTE}):")
         for m in evidence.similarity.matches[:3]:
-            outcome = m.outcome.result or ("open" if m.outcome.status == "OPEN" else "unknown")
+            outcome = _outcome_label(m.outcome)
             parts.append(f"- Trade #{m.trade_id}: {m.similarity * 100:.0f}% similar, outcome {outcome}")
     else:
         parts.append("Historical similarity: limited, no sufficiently similar past setups.")

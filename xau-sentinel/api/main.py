@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import config
+import log_safety
 from ai.assistant import init_table as init_ai_messages_table
 from ai.digest import service as digest_service
 from ai.digest.store import init_table as init_digest_table
@@ -28,6 +29,8 @@ from api.routes import (
     monitoring, notifications, risk, settings, setup, similarity, strategy, strategy_analytics, trade_review,
 )
 from api import ws
+
+log_safety.install()  # VAL-036: keep the Telegram bot token out of httpx's request logs
 
 DEFAULT_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
