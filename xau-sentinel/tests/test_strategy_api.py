@@ -23,6 +23,7 @@ from api.main import app
 from journal import trades as trades_repo
 from analysis.structure import StructureResult
 from analysis.liquidity import LiquidityEvent
+from analysis.sequence import SequenceResult
 from mt5 import market_data
 from tests.conftest import make_candles
 
@@ -41,7 +42,10 @@ def _mock_candles(monkeypatch):
     every test in this file can then reason about exact prices."""
     rows = [(ENTRY - 1 + i * 0.1, ENTRY - 0.7 + i * 0.1, ENTRY - 1.3 + i * 0.1, ENTRY - 0.9 + i * 0.1)
             for i in range(15)]
-    df = make_candles(rows)
+    # Anchored to the real clock (newest candle closed just now) so the feed
+    # reads as live — the evaluator's Data Freshness gate (Stage 23A,
+    # VAL-011) compares it against wall-clock `now` on this route.
+    df = make_candles(rows, start=datetime.now(timezone.utc) - timedelta(minutes=5 * len(rows)))
     # Force the last candle's close to exactly ENTRY regardless of the loop above.
     df.loc[df.index[-1], "close"] = ENTRY
     candles = {"H4": df, "H1": df, "M15": df, "M5": df}
@@ -77,8 +81,9 @@ def _force_a_plus_buy(monkeypatch, minutes_ago=10, sweep_time=None):
         _sweep("sweep_low", "Previous Day Low", ENTRY - 5, sweep_time),
     ]))
     monkeypatch.setattr(evaluator_mod, "detect_equal_levels", Mock(return_value=[]))
-    monkeypatch.setattr(evaluator_mod, "detect_displacement", Mock(return_value="bullish"))
-    monkeypatch.setattr(evaluator_mod, "_check_retracement", Mock(return_value=True))
+    monkeypatch.setattr(evaluator_mod, "evaluate_sequence", Mock(return_value=SequenceResult(
+        sweep_index=3, mss_index=5, mss_level=ENTRY - 1, displacement_index=5, retracement_ok=True,
+    )))
     monkeypatch.setattr(config, "AI_PROVIDER", "mock")
 
 
@@ -150,8 +155,6 @@ def test_aplus_endpoint_never_alerts_when_not_a_plus(api_client, monkeypatch):
     monkeypatch.setattr(evaluator_mod, "compute_zones", Mock(return_value={}))
     monkeypatch.setattr(evaluator_mod, "detect_sweeps", Mock(return_value=[]))
     monkeypatch.setattr(evaluator_mod, "detect_equal_levels", Mock(return_value=[]))
-    monkeypatch.setattr(evaluator_mod, "detect_displacement", Mock(return_value=None))
-    monkeypatch.setattr(evaluator_mod, "_check_retracement", Mock(return_value=False))
     monkeypatch.setattr(config, "AI_PROVIDER", "mock")
 
     resp = api_client.get("/api/strategy/aplus")

@@ -9,13 +9,15 @@ predict outcomes and does not guarantee a profitable trade. All final
 trading decisions and execution are manual.
 """
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Optional
 
 import pandas as pd
 
 import config
-from analysis.structure import analyze_structure, closed_only, detect_displacement
+from analysis.structure import analyze_structure, closed_only, detect_displacement, is_feed_stale
 from analysis.liquidity import detect_sweeps, detect_equal_levels
+from analysis.sequence import evaluate_sequence
 from analysis.zones import compute_zones
 
 CHECKLIST_STEPS = ["Liquidity Sweep", "MSS", "Displacement", "Retracement"]
@@ -41,16 +43,22 @@ def _nearest_zone_distance(price: float, zones: dict) -> float:
     return min(abs(price - v) for v in relevant.values())
 
 
-def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
+def detect_setup(candles: dict, zone_proximity: float = None, now: Optional[datetime] = None) -> SetupResult:
     """`candles` is a dict of timeframe -> DataFrame for M5, M15, H1, H4.
 
-    Structural confirmation (structure, zones, sweeps, equal levels,
-    displacement, and — below — retracement) is computed only from CLOSED
-    candles (Stage 21, VAL-006). `current_price` is the one deliberate
-    exception: current-price context (zone proximity, entry planning)
-    legitimately reads the unfiltered set's last close, which may still be
-    forming."""
+    Structural confirmation (structure, zones, sweeps, equal levels, and the
+    sweep -> MSS -> displacement -> retracement sequence) is computed only
+    from CLOSED candles (Stage 21, VAL-006). `current_price` is the one
+    deliberate exception: current-price context (zone proximity, entry
+    planning) legitimately reads the unfiltered set's last close, which may
+    still be forming.
+
+    The M5 checklist steps come from analysis/sequence.py, each located on
+    its own bar in order from the sweep (Stage 23A, VAL-008/009/018). A
+    stale feed (`now` vs the newest M5 candle) can never be VALID
+    (Stage 23A, VAL-011)."""
     zone_proximity = zone_proximity if zone_proximity is not None else config.LIQUIDITY_SWEEP_BUFFER_PIPS * 6
+    now = now or datetime.now(timezone.utc)
 
     closed = closed_only(candles)
     h4_struct = analyze_structure(closed["H4"])
@@ -63,6 +71,7 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
     sweeps = detect_sweeps(closed["M5"], zones)
     equal_levels = detect_equal_levels(closed["M5"])
     displacement = detect_displacement(closed["M5"])
+    data_stale = is_feed_stale(candles["M5"], now)
 
     context = {
         "h4_bias": h4_struct.state,
@@ -75,7 +84,10 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
         # (per the liquidity module's own scope) but are NOT wired into the
         # checklist below — the setup strategy is unchanged by this.
         "equal_levels": [e.label for e in equal_levels[-3:]],
+        # Latest-candle displacement, for display only — the checklist's own
+        # Displacement step is the sequence's displacement bar below.
         "displacement": displacement,
+        "data_stale": data_stale,
     }
 
     direction = None
@@ -96,35 +108,25 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
         None,
     )
 
-    # An actual detected structure shift, not merely an established trend:
-    # analyze_structure only ever sets last_mss alongside state == "PULLBACK",
-    # so checking last_mss directly is the precise "did a shift just happen"
-    # signal — checking m5.state == "BULLISH"/"BEARISH" here would just mean
-    # "M5 already agrees with the trend," which is a different, weaker claim.
-    m5_mss_ok = (direction == "BUY" and m5.last_mss == "bullish") or \
-                (direction == "SELL" and m5.last_mss == "bearish")
-
-    displacement_ok = (direction == "BUY" and displacement == "bullish") or \
-                       (direction == "SELL" and displacement == "bearish")
+    # The M5 steps only exist relative to a sweep: the sequence starts at the
+    # sweep bar, so an MSS or displacement with no qualifying sweep behind it
+    # is not part of this setup.
+    seq = evaluate_sequence(closed["M5"], relevant_sweep, direction)
 
     checklist = {
         "Liquidity Sweep": bool(relevant_sweep) and near_zone,
-        "MSS": m5_mss_ok,
-        "Displacement": displacement_ok,
-        "Retracement": False,
+        "MSS": seq.mss_ok,
+        "Displacement": seq.displacement_ok,
+        "Retracement": seq.retracement_ok,
     }
 
-    # Invalidation: the liquidity sweep already fired (something to invalidate), but
-    # M5 has since broken firmly the other way. Gated on the sweep rather than
-    # checklist["MSS"]: analyze_structure only ever pairs last_mss with state ==
-    # "PULLBACK", never with the opposite hard state, so an MSS-gated check here
-    # could never fire — m5.state can't simultaneously be BULLISH/BEARISH-opposite
-    # and satisfy m5_mss_ok in the same direction. See tests/test_setup.py.
-    if checklist["Liquidity Sweep"] and (
-        (direction == "BUY" and m5.state == "BEARISH") or (direction == "SELL" and m5.state == "BULLISH")
-    ):
+    # Invalidation: the sweep fired, an MSS followed, and price has since
+    # closed back beyond the swept extreme. The opposing M5 structure that
+    # precedes the MSS is the setup's normal precursor and never invalidates
+    # it (Stage 23A, VAL-008).
+    if checklist["Liquidity Sweep"] and seq.invalidated:
         return SetupResult(state="INVALIDATED", direction=direction, checklist=checklist,
-                            reason=f"M5 {m5.state.lower()} structure break invalidated the {direction} setup.",
+                            reason=f"{direction} setup invalidated: {seq.invalidation_reason}",
                             context=context)
 
     completed = sum(1 for v in checklist.values() if v)
@@ -134,9 +136,12 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
                             context=context)
 
     if checklist["Liquidity Sweep"] and checklist["MSS"] and checklist["Displacement"]:
-        retracement_ok = _check_retracement(closed["M5"], direction)
-        checklist["Retracement"] = retracement_ok
-        if retracement_ok:
+        if checklist["Retracement"]:
+            if data_stale:
+                return SetupResult(state="DEVELOPING", direction=direction, checklist=checklist,
+                                    reason="All steps confirmed, but market data is stale — no new M5 candle "
+                                           "has arrived recently, so this cannot be treated as a live setup.",
+                                    context=context)
             entry_zone, sl, tp, rr = _plan_trade(closed["M5"], current_price, direction)
             if rr is not None:
                 return SetupResult(state="VALID", direction=direction, checklist=checklist,
@@ -153,22 +158,6 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
     done_steps = ", ".join(k for k, v in checklist.items() if v) or "none yet"
     return SetupResult(state="DEVELOPING", direction=direction, checklist=checklist,
                         reason=f"{direction} bias building — confirmed: {done_steps}.", context=context)
-
-
-def _check_retracement(df: pd.DataFrame, direction: str, lookback: int = 10) -> bool:
-    recent = df.tail(lookback)
-    impulse_high = float(recent["high"].max())
-    impulse_low = float(recent["low"].min())
-    if impulse_high <= impulse_low:
-        return False
-
-    last_close = float(recent["close"].iloc[-1])
-    if direction == "BUY":
-        retrace_pct = (impulse_high - last_close) / (impulse_high - impulse_low)
-    else:
-        retrace_pct = (last_close - impulse_low) / (impulse_high - impulse_low)
-
-    return config.RETRACEMENT_MIN_PCT <= retrace_pct <= config.RETRACEMENT_MAX_PCT
 
 
 def _plan_trade(closed_df: pd.DataFrame, current_price: float, direction: str, lookback: int = 10):

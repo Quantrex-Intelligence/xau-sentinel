@@ -5,7 +5,9 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 import config
-from analysis.structure import analyze_structure, closed_only, compute_atr, detect_displacement, find_swing_points
+from analysis.structure import (
+    analyze_structure, closed_only, compute_atr, detect_displacement, displacement_at, find_swing_points, is_feed_stale,
+)
 from tests.conftest import make_candles
 
 
@@ -149,15 +151,36 @@ def test_bearish_structure_breaking_prior_lh_becomes_pullback():
     assert result.last_mss == "bullish"
 
 
-def test_bos_confirmed_on_close_beyond_prior_swing_high():
-    """Documents the implemented BOS definition: bullish structure intact AND
-    the latest close trades through the *prior* (second-most-recent) labeled
-    swing high — a confirmed-close break, not a wick-only touch."""
-    path = _ramp_path(BULLISH_POINTS, steps_per_leg=7)  # ends at H128(HH), prior high = 120
-    df = _flat_candles_from_path(path, tail=[126, 124, 122])  # pulls back under 128 (keeps it the pivot), closes(122) > prior_high(120)
+def test_bos_confirmed_on_close_beyond_latest_swing_high():
+    """BOS definition: bullish structure intact AND the latest close trades
+    through the LATEST confirmed swing high (the HH) — a confirmed-close
+    break, not a wick-only touch (Stage 23A, VAL-013)."""
+    path = _ramp_path(BULLISH_POINTS, steps_per_leg=7)  # ends at H128(HH), L112(HL)
+    df = _flat_candles_from_path(path, tail=[126, 124, 122, 126, 129])  # 128 stays the pivot; close 129 > 128
     result = analyze_structure(df)
     assert result.state == "BULLISH"
     assert result.last_bos == "bullish"
+
+
+def test_bos_not_reported_against_superseded_prior_swing_high():
+    """VAL-013 regression: the old definition compared against the prior,
+    already-superseded swing high (120), so a close of 122 — a retracement
+    BELOW the latest HH of 128 — was reported as a bullish BOS."""
+    path = _ramp_path(BULLISH_POINTS, steps_per_leg=7)
+    df = _flat_candles_from_path(path, tail=[126, 124, 122])  # 120 < 122 < 128
+    result = analyze_structure(df)
+    assert result.state == "BULLISH"
+    assert result.last_bos is None
+
+
+def test_bearish_bos_measured_against_latest_swing_low():
+    path = _ramp_path(BEARISH_POINTS, steps_per_leg=7)  # ends at L72(LL), H88(LH)
+    df = _flat_candles_from_path(path, tail=[74, 76, 78])  # 72 < 78 < 80 (the superseded low)
+    assert analyze_structure(df).last_bos is None
+    df = _flat_candles_from_path(path, tail=[74, 76, 78, 74, 71])
+    result = analyze_structure(df)
+    assert result.state == "BEARISH"
+    assert result.last_bos == "bearish"
 
 
 def test_bos_not_triggered_by_wick_only_break():
@@ -280,3 +303,33 @@ def test_mss_does_not_depend_on_future_candles():
     result_from_prefix_of_extended = analyze_structure(extended.iloc[: len(df)])
     assert result_from_prefix_of_extended.last_mss == result_now.last_mss
     assert result_from_prefix_of_extended.state == result_now.state
+
+
+# --- Stage 23A: displacement_at / is_feed_stale -------------------------------
+
+def _quiet_then(rows_after, n_quiet=20):
+    rows = [(100.0, 100.3, 99.7, 100.1 if i % 2 == 0 else 99.9) for i in range(n_quiet)]
+    return make_candles(rows + list(rows_after))
+
+
+def test_displacement_at_finds_an_earlier_bar_not_only_the_latest():
+    df = _quiet_then([(100.0, 104.2, 99.9, 104.0), (104.0, 104.3, 103.8, 104.1)])
+    assert detect_displacement(df) is None          # latest bar is quiet
+    assert displacement_at(df, 20) == "bullish"     # the earlier impulse bar is still found
+    assert displacement_at(df, 21) is None
+
+
+def test_displacement_at_matches_detect_displacement_on_the_latest_bar():
+    df = _quiet_then([(100.0, 100.1, 95.8, 96.0)])
+    assert displacement_at(df, len(df) - 1) == detect_displacement(df) == "bearish"
+
+
+def test_is_feed_stale_uses_the_newest_candle_time():
+    from datetime import datetime, timedelta, timezone
+    import config
+    df = _quiet_then([])
+    latest = df["time"].iloc[-1].to_pydatetime()
+    limit = 5 * 60 + config.DATA_STALE_SECONDS
+    assert is_feed_stale(df, latest + timedelta(seconds=limit)) is False
+    assert is_feed_stale(df, latest + timedelta(seconds=limit + 1)) is True
+    assert is_feed_stale(df.iloc[0:0], datetime.now(timezone.utc)) is True

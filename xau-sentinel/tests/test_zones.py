@@ -28,13 +28,34 @@ def _day_of_m5_candles(day, base=100.0):
     return make_candles(rows, tf_minutes=5, start=start)
 
 
+def _day_of_h1_candles(day, base=100.0, hours=range(24)):
+    """H1 candles for a UTC date, using the same session bands as the M5
+    helper above (so the H1 day range equals the M5 day range)."""
+    import pandas as pd
+    frames = []
+    for hour in hours:
+        if 0 <= hour < 6:
+            band = base + 5
+        elif 7 <= hour < 12:
+            band = base + 10
+        elif 12 <= hour < 20:
+            band = base + 15
+        else:
+            band = base
+        start = datetime(day.year, day.month, day.day, hour, 0, tzinfo=timezone.utc)
+        frames.append(make_candles([(band, band + 0.5, band - 0.5, band)], tf_minutes=60, start=start))
+    return pd.concat(frames, ignore_index=True)
+
+
 def test_previous_and_current_day_high_low():
     day1 = _day_of_m5_candles(datetime(2026, 1, 5), base=100)
     day2 = _day_of_m5_candles(datetime(2026, 1, 6), base=200)
     import pandas as pd
     m5 = pd.concat([day1, day2], ignore_index=True)
+    h1 = pd.concat([_day_of_h1_candles(datetime(2026, 1, 5), base=100),
+                    _day_of_h1_candles(datetime(2026, 1, 6), base=200)], ignore_index=True)
 
-    zones = compute_zones(m5, h1=None, h4=None)
+    zones = compute_zones(m5, h1=h1, h4=None)
     assert zones["Previous Day High"] == round(100 + 15 + 0.5, 2)
     assert zones["Previous Day Low"] == round(100 - 0.5, 2)
     assert zones["Current Day High"] == round(200 + 15 + 0.5, 2)
@@ -91,3 +112,44 @@ def test_empty_m5_yields_no_zones_without_crashing():
     assert compute_zones(None, None, None) == {}
     import pandas as pd
     assert compute_zones(pd.DataFrame(), None, None) == {}
+
+
+# --- Stage 23A: VAL-007 / VAL-015 --------------------------------------------
+
+def test_previous_day_uses_full_prior_day_even_when_m5_window_covers_only_its_last_hours():
+    """VAL-007: 300 M5 bars at 01:00 reach back only to ~00:00 the previous
+    day's evening. The prior day's NY-session high (115.5) sits outside that
+    M5 window, but H1 still covers it, so Previous Day High is the true one."""
+    import pandas as pd
+    yesterday_evening = _day_of_m5_candles(datetime(2026, 1, 6), base=100).iloc[-36:]  # 21:00-23:55 only
+    today_m5 = _day_of_m5_candles(datetime(2026, 1, 7), base=200).iloc[:12]
+    m5 = pd.concat([yesterday_evening, today_m5], ignore_index=True)
+    h1 = pd.concat([_day_of_h1_candles(datetime(2026, 1, 6), base=100),
+                    _day_of_h1_candles(datetime(2026, 1, 7), base=200, hours=range(1))], ignore_index=True)
+
+    assert float(yesterday_evening["high"].max()) == 100.5  # M5 alone would have understated it
+    zones = compute_zones(m5, h1=h1, h4=None)
+    assert zones["Previous Day High"] == 115.5
+    assert zones["Previous Day Low"] == 99.5
+
+
+def test_previous_day_on_monday_is_friday_not_sunday_stub():
+    """VAL-015: 2026-01-12 is a Monday; Sunday 2026-01-11 has only a 22:00-23:00
+    re-open stub and must be skipped in favour of Friday 2026-01-09."""
+    import pandas as pd
+    friday = _day_of_h1_candles(datetime(2026, 1, 9), base=100)
+    sunday_stub = _day_of_h1_candles(datetime(2026, 1, 11), base=300, hours=range(22, 24))
+    monday_h1 = _day_of_h1_candles(datetime(2026, 1, 12), base=200, hours=range(3))
+    h1 = pd.concat([friday, sunday_stub, monday_h1], ignore_index=True)
+    m5 = _day_of_m5_candles(datetime(2026, 1, 12), base=200).iloc[:36]
+
+    zones = compute_zones(m5, h1=h1, h4=None)
+    assert zones["Previous Day High"] == 115.5
+    assert zones["Previous Day Low"] == 99.5
+
+
+def test_no_previous_day_zone_without_prior_weekday_history():
+    m5 = _day_of_m5_candles(datetime(2026, 1, 5), base=100)
+    h1 = _day_of_h1_candles(datetime(2026, 1, 5), base=100)
+    zones = compute_zones(m5, h1=h1, h4=None)
+    assert "Previous Day High" not in zones and "Previous Day Low" not in zones

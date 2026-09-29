@@ -16,9 +16,27 @@ def _session_mask(times: pd.Series, start_hour: int, end_hour: int) -> pd.Series
     return (hours >= start_hour) | (hours < end_hour)  # session wraps past midnight UTC
 
 
+def _previous_trading_day_range(h1: pd.DataFrame, today) -> Optional[tuple]:
+    """(high, low) of the most recent WEEKDAY before `today` that has bars,
+    read from H1 candles rather than the M5 window. 300 M5 bars only reach
+    ~25 hours back, so early in the day they held just a fraction of
+    yesterday (VAL-007); the H1 window spans ~12 days, so the prior day is
+    always complete. Weekend dates (the Sunday re-open stub) are skipped,
+    so on a Monday this is Friday, not Sunday (VAL-015). Stage 23A."""
+    if h1 is None or h1.empty:
+        return None
+    dates = h1["time"].dt.date
+    prior = sorted({d for d in dates if d < today and d.weekday() < 5})
+    if not prior:
+        return None
+    day = dates == prior[-1]
+    return float(h1.loc[day, "high"].max()), float(h1.loc[day, "low"].min())
+
+
 def compute_zones(m5: pd.DataFrame, h1: pd.DataFrame, h4: pd.DataFrame) -> dict:
-    """Returns {zone_name: price}. Day/session levels come from M5 candles;
-    higher-timeframe swing levels come from H1/H4 candles."""
+    """Returns {zone_name: price}. Current-day/session levels come from M5
+    candles; Previous Day High/Low and higher-timeframe swing levels come
+    from H1/H4 candles."""
     zones: dict = {}
     if m5 is None or m5.empty:
         return zones
@@ -26,11 +44,10 @@ def compute_zones(m5: pd.DataFrame, h1: pd.DataFrame, h4: pd.DataFrame) -> dict:
     times = m5["time"]
     today = times.iloc[-1].date()
     is_today = times.dt.date == today
-    is_yesterday = times.dt.date == (pd.Timestamp(today) - pd.Timedelta(days=1)).date()
 
-    if is_yesterday.any():
-        zones["Previous Day High"] = float(m5.loc[is_yesterday, "high"].max())
-        zones["Previous Day Low"] = float(m5.loc[is_yesterday, "low"].min())
+    previous_day = _previous_trading_day_range(h1, today)
+    if previous_day is not None:
+        zones["Previous Day High"], zones["Previous Day Low"] = previous_day
 
     if is_today.any():
         zones["Current Day High"] = float(m5.loc[is_today, "high"].max())

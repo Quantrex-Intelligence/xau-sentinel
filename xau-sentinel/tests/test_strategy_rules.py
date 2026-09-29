@@ -8,6 +8,7 @@ import pytest
 import config
 from ai.strategy import rules
 from analysis.liquidity import LiquidityEvent
+from analysis.sequence import SequenceResult
 from risk.models import AccountType, FundedNextStatus, Phase, SafetyLevel
 
 NOW = datetime(2026, 1, 5, 12, 0, tzinfo=timezone.utc)
@@ -51,14 +52,16 @@ def test_within_sweep_window_boundary_is_inclusive():
     assert rules.is_within_sweep_window(NOW - timedelta(minutes=60), NOW, window_minutes=60) is True
 
 
-# --- item 10: opposing M5 MSS invalidation, BUY/SELL symmetry -------------
+# --- item 10: opposing M5 structure break (after the MSS only) ------------
 
-@pytest.mark.parametrize("direction,m5_state,expected", [
-    ("BUY", "BEARISH", True), ("BUY", "BULLISH", False), ("BUY", "RANGING", False),
-    ("SELL", "BULLISH", True), ("SELL", "BEARISH", False), ("SELL", "RANGING", False),
-])
-def test_opposing_mss_invalidation_symmetry(direction, m5_state, expected):
-    assert rules.is_opposing_mss_invalidated(direction, m5_state) is expected
+def test_opposing_mss_invalidation_reads_the_sequence_result():
+    """Stage 23A, VAL-008: the rule is whatever analysis/sequence.py found — an
+    opposing close beyond the swept extreme AFTER the MSS — never the raw
+    m5.state (whose bearish precursor is normal for a BUY candidate).
+    Scenario coverage lives in tests/test_sequence.py."""
+    assert rules.is_opposing_mss_invalidated(SequenceResult(mss_index=5, invalidated=True)) is True
+    assert rules.is_opposing_mss_invalidated(SequenceResult(mss_index=5)) is False
+    assert rules.is_opposing_mss_invalidated(SequenceResult()) is False
 
 
 # --- item 10: H1 flip invalidation, BUY/SELL symmetry ----------------------
@@ -89,24 +92,24 @@ def test_h1_supports_direction_symmetry(direction, state, mss, expected):
     assert rules.h1_supports_direction(direction, state, mss) is expected
 
 
-# --- item 5: M5 MSS, BUY/SELL symmetry, established-trend vs actual shift -
+# --- item 5 / item 6: MSS and displacement come from the bar sequence -----
 
-@pytest.mark.parametrize("direction,last_mss,expected", [
-    ("BUY", "bullish", True), ("BUY", None, False), ("BUY", "bearish", False),
-    ("SELL", "bearish", True), ("SELL", None, False), ("SELL", "bullish", False),
+@pytest.mark.parametrize("seq,expected", [
+    (SequenceResult(sweep_index=3, mss_index=5), True),
+    (SequenceResult(sweep_index=3), False),
+    (SequenceResult(sweep_index=3, mss_index=5, invalidated=True), False),
 ])
-def test_m5_mss_confirmation_symmetry(direction, last_mss, expected):
-    assert rules.is_m5_mss_confirmed(direction, last_mss) is expected
+def test_m5_mss_confirmation_requires_a_shift_bar_after_the_sweep(seq, expected):
+    assert rules.is_m5_mss_confirmed(seq) is expected
 
 
-# --- item 6: displacement, BUY/SELL symmetry -------------------------------
-
-@pytest.mark.parametrize("direction,displacement,expected", [
-    ("BUY", "bullish", True), ("BUY", "bearish", False), ("BUY", None, False),
-    ("SELL", "bearish", True), ("SELL", "bullish", False), ("SELL", None, False),
+@pytest.mark.parametrize("seq,expected", [
+    (SequenceResult(sweep_index=3, displacement_index=6), True),
+    (SequenceResult(sweep_index=3), False),
+    (SequenceResult(sweep_index=3, displacement_index=6, invalidated=True), False),
 ])
-def test_displacement_confirmation_symmetry(direction, displacement, expected):
-    assert rules.is_displacement_confirmed(direction, displacement) is expected
+def test_displacement_confirmation_requires_a_displacement_bar_after_the_sweep(seq, expected):
+    assert rules.is_displacement_confirmed(seq) is expected
 
 
 # --- item 8: stop loss, BUY/SELL symmetry ----------------------------------
@@ -178,6 +181,36 @@ def test_passes_min_rr_just_below_fails():
 
 def test_passes_min_rr_none_fails():
     assert rules.passes_min_rr(None) is False
+
+
+# --- Stage 23A, VAL-010: signed risk, unrounded gate ------------------------
+
+def test_passes_min_rr_compares_the_unrounded_ratio():
+    """2.996 used to round to 3.0 and pass a 1:3 minimum it doesn't meet."""
+    rr, _risk, _reward = rules.compute_risk_reward("BUY", entry=100.0, stop_loss=99.0, target=102.996)
+    assert round(rr, 2) == 3.0  # what the old code compared
+    assert rules.passes_min_rr(rr, min_rr=3.0) is False
+    assert rules.display_rr(rr) == 2.99  # display never overstates
+
+
+def test_display_rr_keeps_exact_values():
+    assert rules.display_rr(3.0) == 3.0
+    assert rules.display_rr(2.5) == 2.5
+    assert rules.display_rr(None) is None
+
+
+@pytest.mark.parametrize("direction,entry,stop", [("BUY", 100.0, 100.5), ("SELL", 100.0, 99.5)])
+def test_stop_on_the_wrong_side_of_entry_yields_no_rr(direction, entry, stop):
+    """Price already traded through the stop: abs() used to turn this into a
+    positive "risk" and a plausible R:R."""
+    rr, risk, reward = rules.compute_risk_reward(direction, entry=entry, stop_loss=stop, target=105.0)
+    assert rr is None and reward is None
+    assert risk < 0
+
+
+def test_sell_risk_reward_uses_stop_above_entry():
+    rr, risk, reward = rules.compute_risk_reward("SELL", entry=100.0, stop_loss=101.0, target=97.0)
+    assert (rr, risk, reward) == (3.0, 1.0, 3.0)
 
 
 # --- item 11: FundedNext gate -----------------------------------------------

@@ -10,11 +10,13 @@ already produced (analysis/structure.py, analysis/liquidity.py,
 analysis/zones.py, risk/fundednext.py). ai/strategy/evaluator.py is the only
 caller, and it — not the LLM — decides the final rating from these answers.
 """
+import math
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import config
 from analysis.liquidity import LiquidityEvent, SWEEPABLE_HIGH_LEVELS, SWEEPABLE_LOW_LEVELS
+from analysis.sequence import SequenceResult
 from risk.models import FundedNextStatus, SafetyLevel
 
 # direction -> the liquidity kind that anchors a candidate in that direction,
@@ -59,12 +61,14 @@ def _as_utc(ts) -> datetime:
     return ts
 
 
-def is_opposing_mss_invalidated(direction: str, m5_state: str) -> bool:
-    """Item 10: an opposing M5 structure break invalidates the candidate —
-    identical condition to Stage 1's own INVALIDATED branch
-    (analysis/setup.py), reapplied here since Stage 4 tracks its own rating
-    independently of Stage 1's state string."""
-    return (direction == "BUY" and m5_state == "BEARISH") or (direction == "SELL" and m5_state == "BULLISH")
+def is_opposing_mss_invalidated(seq: SequenceResult) -> bool:
+    """Item 10: an opposing M5 structure break invalidates the candidate.
+    Only a break that happens AFTER the candidate's own MSS counts — price
+    closing back beyond the swept extreme (analysis/sequence.py). The
+    opposing M5 structure before the MSS is the setup's normal precursor,
+    not an invalidation (Stage 23A, VAL-008). Same condition Stage 1's
+    INVALIDATED branch (analysis/setup.py) uses."""
+    return seq.invalidated
 
 
 def is_h1_flip_invalidated(direction: str, h1_state: str) -> bool:
@@ -86,15 +90,18 @@ def h1_supports_direction(direction: str, h1_state: str, h1_last_mss: Optional[s
     return h1_state in ("BEARISH", "PULLBACK") and h1_last_mss != "bullish"
 
 
-def is_m5_mss_confirmed(direction: str, m5_last_mss: Optional[str]) -> bool:
-    """Item 5: M5 only, an actual shift (not merely an established trend) —
-    identical condition to Stage 1's hardened MSS check."""
-    return (direction == "BUY" and m5_last_mss == "bullish") or (direction == "SELL" and m5_last_mss == "bearish")
+def is_m5_mss_confirmed(seq: SequenceResult) -> bool:
+    """Item 5: M5 only, an actual shift tied to a concrete bar at/after the
+    sweep (analysis/sequence.py) — not merely "the latest close is beyond a
+    swing" (Stage 23A, VAL-018)."""
+    return seq.mss_ok
 
 
-def is_displacement_confirmed(direction: str, displacement: Optional[str]) -> bool:
-    """Item 6: identical condition to Stage 1's displacement check."""
-    return (direction == "BUY" and displacement == "bullish") or (direction == "SELL" and displacement == "bearish")
+def is_displacement_confirmed(seq: SequenceResult) -> bool:
+    """Item 6: an outsized, ATR-relative candle in the candidate's direction
+    on some bar at/after the sweep — not only on the latest bar (Stage 23A,
+    VAL-009)."""
+    return seq.displacement_ok
 
 
 def compute_stop_loss(direction: str, swept_level_price: float, buffer: float = None) -> float:
@@ -120,18 +127,34 @@ def select_target(direction: str, zones: dict, entry: float) -> Optional[float]:
     return min(candidates) if direction == "BUY" else max(candidates)
 
 
+def signed_risk(direction: str, entry: float, stop_loss: float) -> float:
+    """Distance from entry to stop on the side the stop must be on: BUY
+    stops sit below entry, SELL stops above. Zero or negative means price
+    has already traded through the stop level (Stage 23A, VAL-010)."""
+    return entry - stop_loss if direction == "BUY" else stop_loss - entry
+
+
 def compute_risk_reward(direction: str, entry: float, stop_loss: float, target: Optional[float]):
     """Item 9: actual R:R from entry->SL and entry->target — never a fixed
-    3R target. Returns (rr, risk, reward); rr is None when it can't be
-    computed (no target, or a degenerate/zero-risk stop)."""
-    risk = abs(entry - stop_loss)
+    3R target. Returns (rr, risk, reward) with rr UNROUNDED — compare it
+    with passes_min_rr() and round only for display (display_rr()). rr is
+    None when it can't be computed: no target, or a stop that is not on
+    the correct side of entry (risk <= 0)."""
+    risk = signed_risk(direction, entry, stop_loss)
     if target is None or risk <= 0:
         return None, risk, None
     reward = abs(target - entry)
-    return round(reward / risk, 2), risk, reward
+    return reward / risk, risk, reward
+
+
+def display_rr(rr: Optional[float]) -> Optional[float]:
+    """Floors to 2 dp, so a displayed ratio can never overstate the true one
+    (a real 2.996 shows as 2.99, never 3.0)."""
+    return None if rr is None else math.floor(rr * 100 + 1e-9) / 100
 
 
 def passes_min_rr(rr: Optional[float], min_rr: float = None) -> bool:
+    """Compares the UNROUNDED ratio (Stage 23A, VAL-010)."""
     min_rr = min_rr if min_rr is not None else config.AI_STRATEGY_MIN_RR
     return rr is not None and rr >= min_rr
 

@@ -5,12 +5,13 @@ configurable buffer and then close back on the other side — not just any
 wick that grazes a level. This keeps noise out of the event feed.
 """
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 
 import config
 from analysis.structure import find_swing_points
+from analysis.zones import _session_mask
 
 SWEEPABLE_HIGH_LEVELS = ["Previous Day High", "Asian High", "London High", "H1 Swing High", "H4 Swing High"]
 SWEEPABLE_LOW_LEVELS = ["Previous Day Low", "Asian Low", "London Low", "H1 Swing Low", "H4 Swing Low"]
@@ -25,7 +26,41 @@ class LiquidityEvent:
     kind: str  # "sweep_high", "sweep_low", "equal_high", "equal_low"
 
 
+# Session levels are still being formed while the session runs, so a bar
+# inside the session is tested against the session's extreme from bars
+# strictly BEFORE it — never a level that already includes the bar under test
+# or later bars (Stage 23A, VAL-014). name -> (session start, end, side).
+_SESSION_LEVELS = {
+    "Asian High": ("ASIAN_SESSION_START_UTC", "ASIAN_SESSION_END_UTC", "high"),
+    "Asian Low": ("ASIAN_SESSION_START_UTC", "ASIAN_SESSION_END_UTC", "low"),
+    "London High": ("LONDON_SESSION_START_UTC", "LONDON_SESSION_END_UTC", "high"),
+    "London Low": ("LONDON_SESSION_START_UTC", "LONDON_SESSION_END_UTC", "low"),
+}
+
+
+def _session_level_before(df: pd.DataFrame, level_name: str, bar_time) -> Optional[float]:
+    start_attr, end_attr, side = _SESSION_LEVELS[level_name]
+    times = df["time"]
+    mask = (
+        (times.dt.date == bar_time.date())
+        & (times < bar_time)
+        & _session_mask(times, getattr(config, start_attr), getattr(config, end_attr))
+    )
+    if not mask.any():
+        return None
+    return float(df.loc[mask, "high"].max()) if side == "high" else float(df.loc[mask, "low"].min())
+
+
+def _level_for_bar(df: pd.DataFrame, zones: dict, level_name: str, bar_time) -> Optional[float]:
+    if level_name in _SESSION_LEVELS:
+        level = _session_level_before(df, level_name, bar_time)
+        return round(level, 2) if level is not None else None
+    return zones.get(level_name)
+
+
 def detect_sweeps(df: pd.DataFrame, zones: dict, lookback_bars: int = 20, buffer: float = None) -> List[LiquidityEvent]:
+    """`df` is the full CLOSED M5 history (session levels are rebuilt from it
+    bar by bar); only its last `lookback_bars` are tested for sweeps."""
     buffer = buffer if buffer is not None else config.LIQUIDITY_SWEEP_BUFFER_PIPS
     if df is None or df.empty:
         return []
@@ -37,20 +72,20 @@ def detect_sweeps(df: pd.DataFrame, zones: dict, lookback_bars: int = 20, buffer
     # has traded through and closed back, later bars doing the same thing are
     # continuation, not a fresh liquidity event.
     for level_name in SWEEPABLE_HIGH_LEVELS:
-        price = zones.get(level_name)
-        if price is None:
+        if zones.get(level_name) is None:
             continue
         for _, bar in recent.iterrows():
-            if bar["high"] >= price + buffer and bar["close"] < price:
+            price = _level_for_bar(df, zones, level_name, bar["time"])
+            if price is not None and bar["high"] >= price + buffer and bar["close"] < price:
                 events.append(LiquidityEvent(bar["time"], f"{level_name} swept", level_name, price, "sweep_high"))
                 break
 
     for level_name in SWEEPABLE_LOW_LEVELS:
-        price = zones.get(level_name)
-        if price is None:
+        if zones.get(level_name) is None:
             continue
         for _, bar in recent.iterrows():
-            if bar["low"] <= price - buffer and bar["close"] > price:
+            price = _level_for_bar(df, zones, level_name, bar["time"])
+            if price is not None and bar["low"] <= price - buffer and bar["close"] > price:
                 events.append(LiquidityEvent(bar["time"], f"{level_name} swept", level_name, price, "sweep_low"))
                 break
 

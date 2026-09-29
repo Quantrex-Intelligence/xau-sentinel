@@ -36,7 +36,7 @@ def test_h1_pullback_state_maps_to_pullback_regime():
 def test_bullish_bos_yields_breakout_regime():
     import pandas as pd
     path = _ramp_path(BULLISH_POINTS, steps_per_leg=7)
-    h1 = _flat_candles_from_path(path, tail=[126, 124, 122])  # confirmed BOS, see test_structure
+    h1 = _flat_candles_from_path(path, tail=[126, 124, 122, 126, 129])  # close > latest HH 128: confirmed BOS, see test_structure
     m15 = _quiet_m15()
     result = classify_regime(h1, m15)
     assert result.regime == "BREAKOUT"

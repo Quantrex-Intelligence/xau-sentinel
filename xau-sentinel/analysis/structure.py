@@ -5,6 +5,7 @@ This only labels price action that has already happened — it does not predict
 the future and does not produce probability scores.
 """
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import pandas as pd
@@ -26,6 +27,11 @@ class StructureResult:
     state: str
     swings: List[SwingPoint] = field(default_factory=list)
     last_bos: Optional[str] = None  # "bullish" / "bearish" / None
+    # "The latest close is currently beyond the last confirmed swing that
+    # defined the trend" — a state, NOT "a shift just happened": it has no
+    # recency bound and can flip bar to bar. Consumers that need a shift tied
+    # to a specific bar (the M5 entry sequence) use analysis/sequence.py
+    # instead (Stage 23A, VAL-018).
     last_mss: Optional[str] = None  # "bullish" / "bearish" / None
     reason: str = ""
 
@@ -98,8 +104,6 @@ def analyze_structure(df: pd.DataFrame, lookback: int = None) -> StructureResult
 
     last_high = recent_highs[-1] if recent_highs else None
     last_low = recent_lows[-1] if recent_lows else None
-    prior_high = recent_highs[-2] if len(recent_highs) == 2 else None
-    prior_low = recent_lows[-2] if len(recent_lows) == 2 else None
 
     bullish_struct = last_high is not None and last_high.label == "HH" and \
         last_low is not None and last_low.label == "HL"
@@ -116,7 +120,9 @@ def analyze_structure(df: pd.DataFrame, lookback: int = None) -> StructureResult
             last_mss = "bearish"
             state = "PULLBACK"
             reason = "Price closed below the last higher-low — possible bearish shift developing."
-        elif prior_high and last_close > prior_high.price:
+        elif last_close > last_high.price:
+            # BOS is measured against the latest confirmed HH, not the
+            # superseded one before it (Stage 23A, VAL-013).
             last_bos = "bullish"
     elif bearish_struct:
         state = "BEARISH"
@@ -125,7 +131,7 @@ def analyze_structure(df: pd.DataFrame, lookback: int = None) -> StructureResult
             last_mss = "bullish"
             state = "PULLBACK"
             reason = "Price closed above the last lower-high — possible bullish shift developing."
-        elif prior_low and last_close < prior_low.price:
+        elif last_close < last_low.price:
             last_bos = "bearish"
     elif last_high and last_high.label == "HH" and last_low and last_low.label == "LL":
         state = "RANGING"
@@ -152,24 +158,49 @@ def compute_atr(df: pd.DataFrame, period: int = None) -> pd.Series:
     return true_range.rolling(period, min_periods=1).mean()
 
 
-def detect_displacement(df: pd.DataFrame, atr_mult: float = None) -> Optional[str]:
-    """Returns 'bullish'/'bearish' if the most recent candle's body is an
-    outsized, ATR-relative move, else None. Uses ATR through the *prior*
-    candle so a candle is never measured against a baseline that includes
-    itself (no look-ahead)."""
+def displacement_at(df: pd.DataFrame, i: int, atr_mult: float = None, atr: pd.Series = None) -> Optional[str]:
+    """Returns 'bullish'/'bearish' if candle `i`'s body is an outsized,
+    ATR-relative move, else None. Uses ATR through the *prior* candle
+    (i - 1) so a candle is never measured against a baseline that includes
+    itself (no look-ahead). `atr` may be passed in precomputed when scanning
+    many bars."""
     atr_mult = atr_mult if atr_mult is not None else config.DISPLACEMENT_ATR_MULT
-    if df is None or len(df) < config.ATR_PERIOD + 2:
+    if df is None or i < config.ATR_PERIOD + 1 or i >= len(df):
         return None
 
-    atr = compute_atr(df)
-    last = df.iloc[-1]
-    reference_atr = float(atr.iloc[-2])
+    atr = atr if atr is not None else compute_atr(df)
+    reference_atr = float(atr.iloc[i - 1])
     if reference_atr <= 0:
         return None
 
-    body = float(last["close"] - last["open"])
+    bar = df.iloc[i]
+    body = float(bar["close"] - bar["open"])
     if body > reference_atr * atr_mult:
         return "bullish"
     if body < -reference_atr * atr_mult:
         return "bearish"
     return None
+
+
+def detect_displacement(df: pd.DataFrame, atr_mult: float = None) -> Optional[str]:
+    """Displacement on the most recent candle — see displacement_at()."""
+    if df is None or len(df) < config.ATR_PERIOD + 2:
+        return None
+    return displacement_at(df, len(df) - 1, atr_mult)
+
+
+def is_feed_stale(m5: pd.DataFrame, now: datetime, timeframe_minutes: int = 5) -> bool:
+    """True when the newest M5 row (closed or still forming) opened longer
+    ago than one bar + config.DATA_STALE_SECONDS — i.e. no new bar has
+    arrived when one should have (frozen feed, MT5 outage, weekend). Reads
+    the candles themselves, so it guards the analysis path directly rather
+    than only the UI badge (Stage 23A, VAL-011)."""
+    if m5 is None or m5.empty:
+        return True
+    latest = m5["time"].iloc[-1]
+    if hasattr(latest, "to_pydatetime"):
+        latest = latest.to_pydatetime()
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=timezone.utc)
+    age = (now - latest).total_seconds()
+    return age > timeframe_minutes * 60 + config.DATA_STALE_SECONDS

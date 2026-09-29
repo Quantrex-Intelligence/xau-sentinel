@@ -1,6 +1,6 @@
 """Integration tests for ai/strategy/evaluator.py. Mocks the underlying
 analysis calls (analyze_structure, detect_sweeps, detect_equal_levels,
-detect_displacement, compute_zones, _check_retracement) exactly the way
+compute_zones, evaluate_sequence) exactly the way
 tests/test_setup.py does for Stage 1 — each Stage 4 rating transition is
 tested independently of whether the lower-level analysis functions
 themselves are correct (those have their own dedicated test files)."""
@@ -15,6 +15,7 @@ from ai.strategy.schemas import CriterionStatus, Rating
 from ai.providers.base import BaseProvider, ProviderConfigError, ProviderRequestError, ProviderResponse
 from analysis.structure import StructureResult
 from analysis.liquidity import LiquidityEvent
+from analysis.sequence import SequenceResult
 from risk.models import AccountType, FundedNextStatus, Phase, SafetyLevel
 from tests.conftest import make_candles
 
@@ -45,13 +46,22 @@ def _safe_status(**overrides):
 
 
 def _patch_common(monkeypatch, h4, h1, m15, m5, zones, sweeps, displacement, retracement_ok,
-                   equal_levels=None):
+                   equal_levels=None, mss=True, invalidated=False):
+    """`displacement`/`mss`/`retracement_ok`/`invalidated` describe the M5
+    bar sequence after the sweep (analysis/sequence.py, Stage 23A), mocked
+    here the same way the other analysis calls are."""
     monkeypatch.setattr(evaluator_mod, "analyze_structure", Mock(side_effect=[h4, h1, m15, m5]))
     monkeypatch.setattr(evaluator_mod, "compute_zones", Mock(return_value=zones))
     monkeypatch.setattr(evaluator_mod, "detect_sweeps", Mock(return_value=sweeps))
     monkeypatch.setattr(evaluator_mod, "detect_equal_levels", Mock(return_value=equal_levels or []))
-    monkeypatch.setattr(evaluator_mod, "detect_displacement", Mock(return_value=displacement))
-    monkeypatch.setattr(evaluator_mod, "_check_retracement", Mock(return_value=retracement_ok))
+    seq = SequenceResult(
+        sweep_index=3, mss_index=7 if mss else None, mss_level=100.0,
+        displacement_index=7 if displacement else None, retracement_ok=retracement_ok,
+        invalidated=invalidated,
+        invalidation_reason="M5 closed back below the swept low (99.50) after the market structure shift."
+        if invalidated else "",
+    )
+    monkeypatch.setattr(evaluator_mod, "evaluate_sequence", Mock(return_value=seq))
 
 
 def _full_buy_setup(monkeypatch, **overrides):
@@ -70,8 +80,11 @@ def _full_buy_setup(monkeypatch, **overrides):
 def _full_sell_setup(monkeypatch, **overrides):
     params = dict(
         h4=_sr("BEARISH"), h1=_sr("BEARISH"), m15=_sr("BEARISH"), m5=_sr("PULLBACK", last_mss="bearish"),
-        zones={"Previous Day High": 100.3, "Previous Day Low": 90.0},
-        sweeps=[_sweep("sweep_high", minutes_ago=10, level_name="Previous Day High", level_price=100.3)],
+        # Swept high above entry (101.5), so the SELL stop sits on the correct
+        # side. This fixture's old 100.3 level put the stop BELOW entry and
+        # only "passed" through the abs() risk bug (Stage 23A, VAL-010).
+        zones={"Previous Day High": 101.9, "Previous Day Low": 90.0},
+        sweeps=[_sweep("sweep_high", minutes_ago=10, level_name="Previous Day High", level_price=101.9)],
         displacement="bearish", retracement_ok=True,
     )
     params.update(overrides)
@@ -126,7 +139,7 @@ def test_full_a_plus_sell(monkeypatch):
     assert result.direction == "SELL"
     assert result.missing_conditions == []
     assert all(c.status == CriterionStatus.PASSED for c in result.criteria)
-    assert result.stop_loss == 100.60  # 100.3 + 0.30
+    assert result.stop_loss == 102.20  # 101.9 + 0.30
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +147,7 @@ def test_full_a_plus_sell(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_missing_mss_is_developing_not_a_plus(monkeypatch):
-    _full_buy_setup(monkeypatch, m5=_sr("BULLISH", last_mss=None))  # trend already established, no shift
+    _full_buy_setup(monkeypatch, m5=_sr("BULLISH", last_mss=None), mss=False)  # no shift bar after the sweep
     result = evaluator_mod.evaluate_deterministic(_candles(), _safe_status(), now=NOW)
     assert result.rating == Rating.DEVELOPING
     assert "M5 MSS" in result.missing_conditions
@@ -207,10 +220,68 @@ def test_fundednext_unavailable_blocks_a_plus(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_opposing_m5_mss_invalidates(monkeypatch):
-    _full_buy_setup(monkeypatch, m5=_sr("BEARISH"))
+    _full_buy_setup(monkeypatch, m5=_sr("BEARISH"), invalidated=True)
     result = evaluator_mod.evaluate_deterministic(_candles(), _safe_status(), now=NOW)
     assert result.rating == Rating.INVALID
     assert "Opposing M5" in result.invalidation
+    assert "swept low" in result.invalidation
+
+
+def test_bearish_m5_precursor_before_the_mss_is_not_invalid(monkeypatch):
+    """VAL-008 regression: a BUY candidate right after its low sweep, M5
+    still BEARISH and no MSS yet — DEVELOPING, not INVALID."""
+    _full_buy_setup(monkeypatch, m5=_sr("BEARISH"), mss=False, displacement=None, retracement_ok=False)
+    result = evaluator_mod.evaluate_deterministic(_candles(), _safe_status(), now=NOW)
+    assert result.rating == Rating.DEVELOPING
+    assert result.invalidation is None
+    assert "M5 MSS" in result.missing_conditions
+
+
+# ---------------------------------------------------------------------------
+# Stage 23A: R:R correctness (VAL-010) and staleness (VAL-011)
+# ---------------------------------------------------------------------------
+
+def test_stop_already_breached_yields_no_rr_and_says_so(monkeypatch):
+    """Entry (101.5) is already below a BUY stop (102.0 swept low - 0.3
+    buffer = 101.7): the stop has effectively been hit. abs() used to make
+    this a positive risk and a plausible R:R."""
+    _full_buy_setup(monkeypatch, sweeps=[_sweep("sweep_low", level_price=102.0)],
+                    zones={"Previous Day Low": 102.0, "Previous Day High": 120.0})
+    result = evaluator_mod.evaluate_deterministic(_candles(), _safe_status(), now=NOW)
+    assert result.rating == Rating.DEVELOPING
+    assert result.rr is None
+    rr_criterion = next(c for c in result.criteria if c.name == "Minimum R:R")
+    assert rr_criterion.status == CriterionStatus.UNKNOWN
+    assert "beyond the stop level" in rr_criterion.evidence
+
+
+def test_rr_just_under_minimum_is_not_rounded_up_to_pass(monkeypatch):
+    """Entry 101.5, SL 99.6 (risk 1.9). A target at 101.5 + 1.9 * 2.996 gives
+    a true 2.996 that used to round to 3.0 and pass the 1:3 gate."""
+    target = round(101.5 + 1.9 * 2.996, 2)
+    _full_buy_setup(monkeypatch, zones={"Previous Day Low": 99.9, "Previous Day High": target})
+    result = evaluator_mod.evaluate_deterministic(_candles(), _safe_status(), now=NOW)
+    assert result.rating == Rating.DEVELOPING
+    assert "Minimum R:R" in result.missing_conditions
+    assert result.rr == 2.99
+
+
+def test_stale_feed_never_rates_a_plus(monkeypatch):
+    """Everything passes, but the newest M5 candle is 15 minutes old."""
+    _full_buy_setup(monkeypatch, sweeps=[_sweep("sweep_low", minutes_ago=0)])
+    result = evaluator_mod.evaluate_deterministic(_candles(), _safe_status(), now=NOW + timedelta(minutes=10))
+    assert result.rating == Rating.DEVELOPING
+    assert result.missing_conditions == ["Data Freshness"]
+    freshness = next(c for c in result.criteria if c.name == "Data Freshness")
+    assert freshness.status == CriterionStatus.FAILED
+    assert "stale" in freshness.evidence
+
+
+def test_fresh_feed_passes_the_freshness_criterion(monkeypatch):
+    _full_buy_setup(monkeypatch)
+    result = evaluator_mod.evaluate_deterministic(_candles(), _safe_status(), now=NOW)
+    freshness = next(c for c in result.criteria if c.name == "Data Freshness")
+    assert freshness.status == CriterionStatus.PASSED
 
 
 def test_h1_flip_invalidates_before_entry(monkeypatch):
@@ -344,7 +415,7 @@ def _m5_with_one_forming_row(closed_rows, forming_row):
     return make_candles(rows, start=start, now=NOW)
 
 
-def test_evaluate_deterministic_passes_closed_only_candles_to_sweep_and_displacement_checks(monkeypatch):
+def test_evaluate_deterministic_passes_closed_only_candles_to_sweep_and_sequence_checks(monkeypatch):
     """MSS/sweep/displacement/retracement confirmation must never see the
     forming candle -- verified by capturing exactly what DataFrame each
     function actually received."""
@@ -355,22 +426,23 @@ def test_evaluate_deterministic_passes_closed_only_candles_to_sweep_and_displace
 
     monkeypatch.setattr(evaluator_mod, "analyze_structure",
                          Mock(side_effect=[_sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("RANGING")]))
-    sweeps_mock = Mock(return_value=[])
-    displacement_mock = Mock(return_value=None)
+    sweep = _sweep("sweep_low", minutes_ago=10)
+    sweeps_mock = Mock(return_value=[sweep])
+    sequence_mock = Mock(return_value=SequenceResult(sweep_index=3))
     monkeypatch.setattr(evaluator_mod, "compute_zones", Mock(return_value={}))
     monkeypatch.setattr(evaluator_mod, "detect_sweeps", sweeps_mock)
     monkeypatch.setattr(evaluator_mod, "detect_equal_levels", Mock(return_value=[]))
-    monkeypatch.setattr(evaluator_mod, "detect_displacement", displacement_mock)
+    monkeypatch.setattr(evaluator_mod, "evaluate_sequence", sequence_mock)
 
     candles = {"H4": other_df, "H1": other_df, "M15": other_df, "M5": m5_df}
     evaluator_mod.evaluate_deterministic(candles, _safe_status(), now=NOW)
 
     sweeps_call_df = sweeps_mock.call_args[0][0]
-    displacement_call_df = displacement_mock.call_args[0][0]
+    sequence_call_df = sequence_mock.call_args[0][0]
     assert len(sweeps_call_df) == len(closed_rows)
-    assert len(displacement_call_df) == len(closed_rows)
+    assert len(sequence_call_df) == len(closed_rows)
     assert 200.0 not in sweeps_call_df["open"].values
-    assert 200.0 not in displacement_call_df["open"].values
+    assert 200.0 not in sequence_call_df["open"].values
 
 
 def test_evaluate_deterministic_entry_price_reflects_the_forming_candles_current_close(monkeypatch):

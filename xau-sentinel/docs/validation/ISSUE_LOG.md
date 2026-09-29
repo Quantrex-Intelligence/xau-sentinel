@@ -3,8 +3,8 @@
 Severity: **P0** critical · **P1** high · **P2** medium · **P3** low. Status for every item below is
 **Open** except where an entry's own **Status** line says otherwise — no fixes were made during the
 validation phase itself (feature freeze; see `TEST_PLAN.md`); targeted fixes for specific items have since
-been made in later hardening stages (Stage 19 fixed VAL-001/VAL-002/VAL-003/VAL-005; Stage 20 fixed VAL-004
-— see each entry's own Status line, and the git history for the exact commits). All line numbers refer to
+been made in later hardening stages (Stage 19 fixed VAL-001/VAL-002/VAL-003/VAL-005; Stage 20 fixed VAL-004;
+Stage 23A fixed VAL-007..011/013..015/018 — see each entry's own Status line, and the git history for the exact commits). All line numbers refer to
 the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line names a later commit.
 
 ---
@@ -146,29 +146,101 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
   infer state from row position.
 
 ### VAL-007 — Previous Day High/Low is computed from an incomplete prior day
+- **Status: Resolved in Stage 23A** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `analysis/zones.py:29-33`, fed by `get_all_candles(300)` (300 M5 bars ≈ 25 hours).
 - **Actual:** Early in the trading day, the M5 window only reaches a few hours into "yesterday," so Previous Day High/Low — a sweepable level and an R:R target source — is computed from a fraction of the actual prior session, worse the earlier in the day it's checked.
 - **Potential fix:** Fetch enough M5 history to always cover the full prior calendar day (e.g. via a dedicated D1/H1 lookback), independent of the 300-bar window used for structure.
+- **Root cause (confirmed):** `analysis/zones.py::compute_zones()` built Previous Day High/Low from the
+  same 300-bar M5 window every caller fetches (`get_all_candles(300)` ≈ 25 h), so before ~01:00 of the next
+  day the "previous day" was only its last few hours.
+- **Fix:** Previous Day High/Low now come from the closed **H1** candles every caller already passes in
+  (300 H1 bars ≈ 12 days, so the prior day is always complete — no new fetch, no wider M5 window).
+  `_previous_trading_day_range()` is the one place this lives. Current Day High/Low and the session levels
+  still come from M5.
+- **Regression coverage:** `tests/test_zones.py` — an M5 window holding only yesterday's last 3 h (whose
+  M5-only high is 100.5) yields the true 115.5 prior-day high from H1; the existing PDH/PDL test now feeds H1.
 
 ### VAL-008 — The "opposing M5 structure" invalidation check fires on the setup's own normal precursor state, and INVALIDATED isn't sticky
+- **Status: Resolved in Stage 23A** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `analysis/setup.py:115-120`, `ai/strategy/rules.py:62-67`.
 - **Actual:** A bullish M5 MSS can only occur when M5 was previously in a BEARISH (LH+LL) structure — that's the expected state right after a low sweep, while a candidate is waiting for its MSS. The invalidation check reads `m5.state == "BEARISH"` at face value and can mark a fresh, otherwise-valid candidate INVALIDATED immediately instead of DEVELOPING. Separately, `detect_setup`/`evaluate_deterministic` keep no state between calls, so an INVALIDATED candidate can reappear as DEVELOPING/VALID on the very next evaluation with the same sweep.
 - **Potential fix:** Check that the opposing structure break occurred *after* the MSS that validated the candidate, not just its current state; persist an explicit invalidated-candidate marker if INVALIDATED is meant to be sticky.
+- **Root cause (confirmed):** both the Stage 1 INVALIDATED branch and the Stage 4
+  `is_opposing_mss_invalidated()` read `m5.state` at face value. A BUY candidate's own precursor (a
+  bearish M5 leg into the low sweep, before its MSS) is exactly `m5.state == "BEARISH"`, so a fresh
+  candidate could be INVALIDATED immediately; and nothing tied an invalidation to the candidate.
+- **Fix:** new `analysis/sequence.py::evaluate_sequence()` (shared by `detect_setup()` and
+  `evaluate_deterministic()`). Invalidation is defined only *after* the candidate's MSS: any closed M5 bar
+  after the MSS bar closing back beyond the sweep bar's extreme. Stickiness needs no persisted state — the
+  inputs are closed bars, which never change, so the same sweep stays invalidated for as long as it is the
+  candidate (a later recovery bar doesn't resurrect it). The deliberate consequence: an opposing M5 state
+  *before* the MSS is DEVELOPING, not INVALIDATED/INVALID.
+- **Regression coverage:** `tests/test_sequence.py` (precursor ≠ invalidation; close below the swept low
+  after the MSS invalidates and stays invalidated after a recovery; wick-only break doesn't),
+  `tests/test_setup.py::test_bearish_m5_precursor_after_a_low_sweep_is_not_invalidation` (real sequence, the
+  exact old failing case), `tests/test_strategy_evaluator.py::test_bearish_m5_precursor_before_the_mss_is_not_invalid`.
 
 ### VAL-009 — MSS, displacement, and retracement must all be true on the literal same latest bar
+- **Status: Resolved in Stage 23A** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `analysis/setup.py:128-163`, `analysis/structure.py:154` (`last = df.iloc[-1]`).
 - **Actual:** The documented sequence is sweep → MSS → displacement → retracement (separate, sequential steps), but the code requires the current bar to simultaneously be the MSS-confirming close, a >1.5×ATR displacement body, and a 20-79%-retraced close — a materially narrower condition than documented. A retracement occurring on any bar after the displacement bar can never be recognized.
 - **Potential fix:** Track the displacement bar once detected and evaluate retracement against subsequent bars relative to it, rather than requiring all three conditions on `iloc[-1]`.
+- **Root cause (confirmed):** `detect_setup()`/`evaluate_deterministic()` read MSS (`m5.last_mss`),
+  displacement (`detect_displacement()` on `iloc[-1]`) and retracement (`_check_retracement()` on
+  `iloc[-1]`) all off the latest bar, so the documented sweep → MSS → displacement → retracement sequence
+  could only be seen if the latest bar was simultaneously the break, the impulse and the pullback.
+- **Fix:** `analysis/sequence.py` locates each step on its own closed bar, in order, from the sweep bar:
+  MSS = first close at/after the sweep beyond the last opposing swing confirmed before it; displacement =
+  first ATR-outsized body at/after the sweep (via the new `structure.displacement_at(df, i)`, which
+  `detect_displacement()` now wraps unchanged); retracement = the latest bar only if it is strictly after
+  both the MSS and displacement bars, measured from the sweep extreme to the best price since. The
+  checklist/criterion names are unchanged; `_check_retracement()` is removed. `context["displacement"]`
+  (latest-bar display) is kept.
+- **Regression coverage:** `tests/test_sequence.py` (full sequence spread over bars 30/32/34 is recognized;
+  retracement on the displacement bar itself doesn't count; SELL mirror), and
+  `tests/test_setup.py::test_sequence_spread_over_separate_bars_reaches_valid` end to end (VALID while the
+  latest bar alone shows no displacement — impossible before this fix).
 
 ### VAL-010 — R:R risk uses `abs(entry − stop_loss)` with no check that the stop is on the correct side of entry, and the A+ gate rounds before comparing
+- **Status: Resolved in Stage 23A** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `ai/strategy/rules.py:127` (risk calc), `:131,136` (`round(reward/risk, 2)` then `rr >= min_rr`).
 - **Actual:** If price has traded back through the stop level before the evaluator runs, `abs()` still yields a positive "risk" and a plausible-looking R:R for a trade whose stop has effectively already been hit. Separately, `round(reward/risk, 2) >= min_rr` lets a true ratio like 2.996 round to 3.0 and pass a locked 1:3 minimum it doesn't actually meet.
 - **Potential fix:** Use a signed risk (`entry − SL` for BUY, `SL − entry` for SELL) and reject `<= 0`; compare the unrounded ratio against `min_rr`, rounding only for display.
+- **Root cause (confirmed):** `rules.compute_risk_reward()` used `abs(entry − stop_loss)` and
+  `passes_min_rr()` compared `round(reward/risk, 2)`. This was live in the test suite itself:
+  `tests/test_strategy_evaluator.py::test_full_a_plus_sell`'s fixture had its SELL stop (100.60) *below*
+  entry (101.5) and only rated A+ through the `abs()`.
+- **Fix:** `rules.signed_risk()` — `entry − SL` for BUY, `SL − entry` for SELL; `≤ 0` → no R:R, with its
+  own evidence line ("already beyond the stop level … effectively been hit") instead of "no target".
+  `compute_risk_reward()` returns the unrounded ratio, `passes_min_rr()` compares it unrounded, and
+  `display_rr()` floors to 2 dp for display, so a shown ratio never overstates the real one. The SELL
+  fixture above was corrected to a swept high above entry. `analysis/setup.py::_plan_trade()` already used
+  signed risk — unchanged.
+- **Regression coverage:** `tests/test_strategy_rules.py` (2.996 fails 1:3 and displays 2.99; wrong-side
+  stop → None for BUY and SELL), `tests/test_strategy_evaluator.py::test_stop_already_breached_yields_no_rr_and_says_so`
+  and `::test_rr_just_under_minimum_is_not_rounded_up_to_pass`.
 
 ### VAL-011 — No staleness check before deterministic analysis runs
+- **Status: Resolved in Stage 23A** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `analysis/setup.py`/`ai/strategy/evaluator.py::evaluate_current_setup()` — neither calls `mt5.market_data.is_stale()`, which exists but is only wired into the UI header/snapshot display.
 - **Actual:** A frozen/disconnected feed keeps producing a VALID/A+ result indefinitely (over a weekend, or during an MT5 outage) since nothing in the analysis path itself checks candle recency (and VAL-003's UTC mislabeling would defeat the check even if it were added naively).
 - **Potential fix:** Thread an explicit staleness check into `evaluate_current_setup()`/`detect_setup()`, surfaced as part of the result rather than only in a separate UI badge.
+- **Root cause (confirmed):** `mt5.market_data.is_stale()` (tick age, mock-exempt) was only wired
+  into the header/snapshot display; the analysis path never checked data recency.
+- **Fix:** `analysis/structure.py::is_feed_stale(m5, now)` — the newest M5 row (closed or forming) opened
+  more than one bar + `DATA_STALE_SECONDS` ago. It reads the candles themselves, so it guards analysis
+  directly, and relies on VAL-003's UTC fix (Stage 19). `evaluate_deterministic()` adds a **Data Freshness**
+  criterion (a stale feed can never rate A+ — it becomes DEVELOPING with the condition missing);
+  `detect_setup(candles, now=None)` downgrades VALID → DEVELOPING with a stale reason and
+  `context["data_stale"]`. Both default `now` to the wall clock, so the live routes are covered with no
+  caller change; `ai/monitoring/engine.py` passes its own `now` to `evaluate_deterministic()` already.
+  **Follow-up:** `ai/monitoring/engine.py` should also pass `now` to `detect_setup()` (it defaults to the
+  wall clock today, which is correct but not the cycle's own clock) — left untouched here because that file
+  belonged to the parallel monitoring lane.
+- **Regression coverage:** `tests/test_structure.py::test_is_feed_stale_uses_the_newest_candle_time`
+  (exact boundary), `tests/test_setup.py::test_stale_feed_never_reports_valid`,
+  `tests/test_strategy_evaluator.py::test_stale_feed_never_rates_a_plus`. `tests/test_strategy_api.py`'s
+  candle fixture is now anchored to the real clock (it goes through the live route's wall-clock `now`).
 
 ### VAL-012 — Journal `trade_date` (UTC) and `trade_time` (local) are captured inconsistently, and can misdate a trade permanently
 - **Status: Resolved in Stage 22** (see this file's own commit in `git log` for the exact hash).
@@ -214,12 +286,12 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
 
 | ID | Subsystem | Summary | Evidence | Suggested fix direction |
 |---|---|---|---|---|
-| VAL-013 | `analysis/structure.py:108-118` | BOS reported against an already-superseded prior swing (off-by-one) — can fire "bullish BOS" while price is retracing below the latest confirmed high. | `prior_high.price < last_high.price` always holds since `last_high` is the labeled HH, so `last_close > prior_high.price` is too easy to satisfy. | Compare against `last_high.price`, not `prior_high.price`. |
-| VAL-014 | `analysis/zones.py:39-47`, `analysis/liquidity.py:43-55` | Session-level (Asian/London H/L) includes the bar under test and later bars — an in-session sweep of the session's own current extreme can never register, and an earlier genuine sweep can "disappear" once a later bar extends the extreme. | Levels recomputed from the full session including future bars relative to the sweep check. | Compute session levels only from bars strictly before the one being tested for a sweep. |
-| VAL-015 | `analysis/zones.py:29` | On a Monday, "Previous Day" resolves to Sunday (near-empty/no bars), never Friday. | `today - 1 day` with no weekend skip. | Skip back to the last day with real session data. |
+| VAL-013 | `analysis/structure.py:108-118` | **Resolved in Stage 23A** (see below) — BOS reported against an already-superseded prior swing (off-by-one) — can fire "bullish BOS" while price is retracing below the latest confirmed high. | `prior_high.price < last_high.price` always holds since `last_high` is the labeled HH, so `last_close > prior_high.price` is too easy to satisfy. | Compare against `last_high.price`, not `prior_high.price`. |
+| VAL-014 | `analysis/zones.py:39-47`, `analysis/liquidity.py:43-55` | **Resolved in Stage 23A** (see below) — Session-level (Asian/London H/L) includes the bar under test and later bars — an in-session sweep of the session's own current extreme can never register, and an earlier genuine sweep can "disappear" once a later bar extends the extreme. | Levels recomputed from the full session including future bars relative to the sweep check. | Compute session levels only from bars strictly before the one being tested for a sweep. |
+| VAL-015 | `analysis/zones.py:29` | **Resolved in Stage 23A** (see below) — On a Monday, "Previous Day" resolves to Sunday (near-empty/no bars), never Friday. | `today - 1 day` with no weekend skip. | Skip back to the last day with real session data. |
 | VAL-016 | `mt5/account.py:83-106`, `risk/fundednext.py:52-61` | Daily P&L / trading-days-completed sums *every* deal type from `history_deals_get`, including deposits/balance adjustments — can misclassify a deposit as a "profitable trading day" and falsely trigger the FundedNext consistency-rule warning. | No filter on `d.type`/`d.entry`; commission/swap also excluded. | Filter to actual trade-close deals only; include commission/swap in realized P&L. |
 | VAL-017 | `mt5/account.py` | Suspected double timezone application on deal timestamps (UTC tag then `Europe/Nicosia` conversion) — **inference only, not verified against a live terminal** since `MODE=mock` throughout this pass. | Flagged by code inspection, not reproduced live. | Confirm against a real MT5 connection before treating as confirmed. |
-| VAL-018 | `analysis/structure.py:104-116` | `last_mss` means "close is currently beyond the last confirmed swing," not "a shift just happened" — no recency bound, can flicker on/off bar to bar (compounded by VAL-006). | Docstring/comment at `setup.py:91-95` calls it a "did a shift just happen" signal; code doesn't check recency. | Add an explicit recency window or a "shift bar index" the MSS is tied to. |
+| VAL-018 | `analysis/structure.py:104-116` | **Resolved in Stage 23A** (see below) — `last_mss` means "close is currently beyond the last confirmed swing," not "a shift just happened" — no recency bound, can flicker on/off bar to bar (compounded by VAL-006). | Docstring/comment at `setup.py:91-95` calls it a "did a shift just happen" signal; code doesn't check recency. | Add an explicit recency window or a "shift bar index" the MSS is tied to. |
 | VAL-019 | `ai/monitoring/rules.py` (4 of 6 dedup keys), `ai/monitoring/engine.py:115-122` | Dedup keys for SETUP_STATE_CHANGED/APLUS_SETUP_INVALIDATED/RISK_STATUS_CHANGED/MI_QUALITY_CHANGED embed the cycle timestamp; if a cycle partially fails after inserting alerts but before `_last_snapshot` updates, the next cycle can re-detect and re-send the same transition (duplicate Telegram message too). Contradicts the store's own "never insert two rows for the same transition" docstring for these 4 types. | `ai/monitoring/store.py:9-13`'s claim only actually holds for APLUS_SETUP_DETECTED/HIGH_IMPACT_EVENT_NEAR. | Update `_last_snapshot` before persisting, or make the timestamp component coarser/omit it from the dedup key. |
 | VAL-020 | `ai/notifications/delivery.py:96-118` | A message that sends successfully but whose `mark_sent()` write then fails stays PENDING and resends next cycle; a provider exception type not explicitly handled (e.g. `httpx.InvalidURL`) can wedge the whole delivery cycle, bypassing `TELEGRAM_MAX_RETRIES` entirely for every queued item. | Code reads `except httpx.TimeoutException / httpx.HTTPError` specifically. | Broaden the caught exception type or wrap per-delivery; make `mark_sent` failure non-fatal to the loop. |
 | VAL-021 | `ai/monitoring/engine.py`, `ai/notifications/delivery.py`, `ai/digest/service.py` | All three `asyncio.create_task`-scheduled background loops perform blocking I/O (MT5 reads, HTTP calls, SQLite) directly inside their coroutine with no `asyncio.to_thread` — freezes every other `async` handler (including the WebSocket) for the duration of a cycle. | `run_monitoring_cycle()`/`attempt_deliveries()`/`run_digest_cycle()` bodies. | Wrap the synchronous work in `asyncio.to_thread(...)`. |
@@ -228,6 +300,35 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
 | VAL-024 | `journal/trades.py::close_trade`, `api/routes/journal.py` | Re-submitting `PATCH .../close` on an already-closed trade silently overwrites `result`/`pnl`/`r_multiple` (no `WHERE status='OPEN'` guard) — any omitted optional field on the second call gets nulled out. | Route only checks the trade exists, not its current status. | Reject (409/400) a close attempt on a trade whose status isn't OPEN. |
 
 ---
+
+### Stage 23A resolutions (P2)
+
+- **VAL-013** — `analysis/structure.py::analyze_structure()` now measures BOS against the latest confirmed
+  swing (`last_high`/`last_low`); the superseded `prior_high`/`prior_low` comparison is gone. Coverage:
+  `tests/test_structure.py::test_bos_not_reported_against_superseded_prior_swing_high` (the exact old false
+  positive: 120 < close 122 < HH 128), `::test_bos_confirmed_on_close_beyond_latest_swing_high`,
+  `::test_bearish_bos_measured_against_latest_swing_low`. The old BOS test — and
+  `tests/test_regime.py::test_bullish_bos_yields_breakout_regime`, which reused its fixture — documented the
+  buggy definition and were rewritten to the corrected one.
+- **VAL-014** — `analysis/liquidity.py::detect_sweeps()` now tests each bar against the Asian/London
+  session extreme from bars **strictly before it** (same date, same `zones._session_mask`), and the
+  resulting `LiquidityEvent.level_price` is that pre-sweep level, so the A+ stop buffer anchors to the level
+  actually swept. `compute_zones()`'s displayed session levels are unchanged. PDH/PDL and H1/H4-swing
+  levels were already prior-only. Coverage: `tests/test_liquidity.py` (in-session sweep of the session's own
+  prior low registers at 99.8; an earlier sweep survives a later bar extending the low).
+- **VAL-015** — Previous Day now resolves to the most recent **weekday** before today that has bars (see
+  VAL-007's fix — the same function), so Monday → Friday and the Sunday re-open stub is skipped. Coverage:
+  `tests/test_zones.py::test_previous_day_on_monday_is_friday_not_sunday_stub`,
+  `::test_no_previous_day_zone_without_prior_weekday_history`.
+- **VAL-018** — the M5 MSS used by the setup/A+ checklist is now tied to a concrete shift bar at/after
+  the sweep (`SequenceResult.mss_index`, see VAL-009). `StructureResult.last_mss` keeps its meaning
+  (H1 direction gating relies on it) but its field comment now states it honestly as a no-recency *state*;
+  the misleading "did a shift just happen" comment in `analysis/setup.py` is gone. Coverage:
+  `tests/test_setup.py::test_mss_case_d_current_close_beyond_swing_without_a_shift_bar_is_not_confirmed`,
+  `tests/test_strategy_rules.py::test_m5_mss_confirmation_requires_a_shift_bar_after_the_sweep`.
+  Behavior change to note: since the sequence starts at the sweep, an M5 MSS/displacement with no qualifying
+  sweep behind it no longer counts as a checklist step (`test_mss_alone_does_not_create_valid_setup` now
+  expects NO SETUP rather than DEVELOPING).
 
 ## P3 — Low
 

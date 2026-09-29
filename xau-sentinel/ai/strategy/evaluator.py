@@ -31,8 +31,8 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 import config
-from analysis.setup import _check_retracement
-from analysis.structure import analyze_structure, closed_only, detect_displacement
+from analysis.sequence import evaluate_sequence
+from analysis.structure import analyze_structure, closed_only, is_feed_stale
 from analysis.liquidity import detect_equal_levels, detect_sweeps
 from analysis.zones import compute_zones
 from mt5 import market_data
@@ -117,8 +117,8 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
     zones = compute_zones(closed["M5"], closed["H1"], closed["H4"])
     sweeps = detect_sweeps(closed["M5"], zones)
     equal_levels = detect_equal_levels(closed["M5"])
-    displacement = detect_displacement(closed["M5"])
     current_price = float(candles["M5"]["close"].iloc[-1])
+    data_stale = is_feed_stale(candles["M5"], now)
 
     fn_gate_ok, fn_reason = rules.check_fundednext_gate(fundednext_status)
     fundednext_out = _fundednext_gate_out(fundednext_status, fn_gate_ok, fn_reason)
@@ -147,10 +147,15 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
     direction = rules.candidate_direction(candidate)
     sweep_time_iso = _sweep_time_iso(candidate)
 
-    if rules.is_opposing_mss_invalidated(direction, m5.state):
+    # The M5 steps are located bar by bar from the sweep, in order
+    # (Stage 23A, VAL-008/009/018 — analysis/sequence.py).
+    seq = evaluate_sequence(closed["M5"], candidate, direction)
+
+    if rules.is_opposing_mss_invalidated(seq):
         return StrategyEvaluationOut(
             rating=Rating.INVALID, direction=direction, context_evidence=context_evidence,
-            invalidation=f"Opposing M5 structure break ({m5.state}) invalidated the {direction} candidate.",
+            invalidation=f"Opposing M5 structure break invalidated the {direction} candidate: "
+                         f"{seq.invalidation_reason}",
             fundednext=fundednext_out, evaluated_at=now.isoformat(), candidate_sweep_time=sweep_time_iso,
         )
 
@@ -170,15 +175,25 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
         )
 
     h1_ok = rules.h1_supports_direction(direction, h1.state, h1.last_mss)
-    mss_ok = rules.is_m5_mss_confirmed(direction, m5.last_mss)
-    displacement_ok = rules.is_displacement_confirmed(direction, displacement)
-    retracement_ok = _check_retracement(closed["M5"], direction)
+    mss_ok = rules.is_m5_mss_confirmed(seq)
+    displacement_ok = rules.is_displacement_confirmed(seq)
+    retracement_ok = seq.retracement_ok
+    m5_times = closed["M5"]["time"]
 
     entry = round(current_price, 2)
     stop_loss = rules.compute_stop_loss(direction, candidate.level_price)
     target = rules.select_target(direction, zones, entry)
-    rr, _risk, _reward = rules.compute_risk_reward(direction, entry, stop_loss, target)
-    rr_ok = rules.passes_min_rr(rr)
+    rr_raw, risk, _reward = rules.compute_risk_reward(direction, entry, stop_loss, target)
+    rr_ok = rules.passes_min_rr(rr_raw)
+    rr = rules.display_rr(rr_raw)
+    if rr is not None:
+        rr_evidence = (f"Entry {entry}, SL {stop_loss}, target {target}, actual R:R 1:{rr} "
+                       f"(minimum required 1:{config.AI_STRATEGY_MIN_RR})")
+    elif risk <= 0:
+        rr_evidence = (f"Entry {entry} is already beyond the stop level {stop_loss} — the stop has "
+                       f"effectively been hit, so R:R cannot be computed.")
+    else:
+        rr_evidence = "No qualifying opposing liquidity level found beyond entry — R:R cannot be computed."
 
     criteria_specs = [
         ("H1 Bias", h1_ok,
@@ -187,17 +202,22 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
          f"{candidate.label} at {candidate.level_price} ({candidate.time}), "
          f"within the {config.AI_STRATEGY_SWEEP_WINDOW_MINUTES}-minute window."),
         ("M5 MSS", mss_ok,
-         f"M5 structure: {m5.state}" + (f" (MSS={m5.last_mss})" if m5.last_mss else "") + f" — {m5.reason}"),
+         (f"M5 closed beyond the {seq.mss_level:.2f} swing at {m5_times.iloc[seq.mss_index]}, after the sweep."
+          if mss_ok else
+          f"No M5 close beyond the last opposing swing since the sweep yet — M5 structure: {m5.state}.")),
         ("Displacement", displacement_ok,
-         f"M5 displacement: {displacement or 'none detected on the latest candle'}"),
+         (f"M5 displacement candle at {m5_times.iloc[seq.displacement_index]}, after the sweep."
+          if displacement_ok else "No displacement candle since the sweep yet.")),
         ("Retracement", retracement_ok,
          f"M5 retracement into the {config.RETRACEMENT_MIN_PCT * 100:.0f}-"
-         f"{config.RETRACEMENT_MAX_PCT * 100:.0f}% band: {'within band' if retracement_ok else 'not within band'}"),
-        ("Minimum R:R", rr_ok if rr is not None else None,
-         (f"Entry {entry}, SL {stop_loss}, target {target}, actual R:R 1:{rr} "
-          f"(minimum required 1:{config.AI_STRATEGY_MIN_RR})") if rr is not None
-         else "No qualifying opposing liquidity level found beyond entry — R:R cannot be computed."),
+         f"{config.RETRACEMENT_MAX_PCT * 100:.0f}% band, after the MSS and displacement candles: "
+         f"{'within band' if retracement_ok else 'not within band'}"),
+        ("Minimum R:R", rr_ok if rr is not None else None, rr_evidence),
         ("FundedNext Risk", fn_gate_ok, fn_reason),
+        ("Data Freshness", not data_stale,
+         "Latest M5 candle is current." if not data_stale else
+         "Market data is stale — no new M5 candle has arrived recently (feed frozen, disconnected, or "
+         "market closed), so this cannot rate A+."),
     ]
 
     criteria = [Criterion(name=name, status=_status(ok), evidence=evidence) for name, ok, evidence in criteria_specs]

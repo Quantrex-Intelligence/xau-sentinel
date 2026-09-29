@@ -14,6 +14,7 @@ import pytest
 import analysis.setup as setup_mod
 from analysis.structure import StructureResult, analyze_structure as real_analyze_structure
 from analysis.liquidity import LiquidityEvent
+from analysis.sequence import SequenceResult
 from tests.conftest import make_candles
 
 
@@ -29,6 +30,24 @@ def _dummy_candles():
 def _patch_structure(monkeypatch, h4, h1, m15, m5):
     mock = Mock(side_effect=[h4, h1, m15, m5])
     monkeypatch.setattr(setup_mod, "analyze_structure", mock)
+
+
+def _patch_sequence(monkeypatch, **fields):
+    """Mocks analysis/sequence.py's bar-by-bar result (Stage 23A) — the
+    source of the MSS/Displacement/Retracement checklist steps and of
+    INVALIDATED. Its own scenarios are covered in tests/test_sequence.py."""
+    mock = Mock(return_value=SequenceResult(**fields))
+    monkeypatch.setattr(setup_mod, "evaluate_sequence", mock)
+    return mock
+
+
+ALL_STEPS = dict(sweep_index=5, mss_index=7, displacement_index=7, retracement_ok=True)
+
+
+def _fresh_now(candles):
+    """A `now` one minute after the newest M5 candle — a live, non-stale feed
+    for these fixed-date fixtures (Stage 23A, VAL-011)."""
+    return candles["M5"]["time"].iloc[-1].to_pydatetime() + timedelta(minutes=1)
 
 
 def _sr(state, last_mss=None, last_bos=None, reason=""):
@@ -65,15 +84,17 @@ def test_liquidity_sweep_alone_does_not_create_valid_setup(monkeypatch):
 
 def test_mss_alone_does_not_create_valid_setup(monkeypatch):
     """Explicit spec requirement: MSS by itself (no sweep, no displacement)
-    must only be DEVELOPING, never VALID."""
+    is never VALID. Since Stage 23A the M5 sequence starts at the sweep, so
+    an M5 shift with no qualifying sweep behind it isn't a checklist step at
+    all: NO SETUP, MSS unchecked."""
     _patch_structure(monkeypatch, _sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("PULLBACK", last_mss="bullish"))
     monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={}))  # no zones -> no sweep possible
     monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[]))
     monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value=None))
 
     result = setup_mod.detect_setup(_dummy_candles())
-    assert result.state == "DEVELOPING"
-    assert result.checklist["MSS"] is True
+    assert result.state == "NO SETUP"
+    assert result.checklist["MSS"] is False
     assert result.checklist["Liquidity Sweep"] is False
     assert result.state != "VALID"
 
@@ -85,9 +106,10 @@ def test_full_checklist_with_valid_retracement_is_valid(monkeypatch):
                             level_price=99.9, kind="sweep_low")
     monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
     monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value="bullish"))
-    monkeypatch.setattr(setup_mod, "_check_retracement", Mock(return_value=True))
+    _patch_sequence(monkeypatch, **ALL_STEPS)
 
-    result = setup_mod.detect_setup(_dummy_candles())
+    candles = _dummy_candles()
+    result = setup_mod.detect_setup(candles, now=_fresh_now(candles))
     assert result.state == "VALID"
     assert result.direction == "BUY"
     assert all(result.checklist.values())
@@ -103,7 +125,7 @@ def test_full_checklist_awaiting_retracement_is_developing_not_valid(monkeypatch
                             level_price=99.9, kind="sweep_low")
     monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
     monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value="bullish"))
-    monkeypatch.setattr(setup_mod, "_check_retracement", Mock(return_value=False))
+    _patch_sequence(monkeypatch, **{**ALL_STEPS, "retracement_ok": False})
 
     result = setup_mod.detect_setup(_dummy_candles())
     assert result.state == "DEVELOPING"
@@ -147,8 +169,27 @@ def test_analyze_structure_never_pairs_opposite_hard_state_with_matching_last_ms
 
 
 def test_invalidated_when_sweep_confirmed_and_m5_reverses_against_direction(monkeypatch):
-    """Once the sweep has fired, a firm M5 structure break against the trade
-    direction must cancel the setup."""
+    """Once the sweep and MSS have fired, M5 closing back beyond the swept
+    extreme must cancel the setup."""
+    _patch_structure(monkeypatch, _sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("BEARISH"))
+    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={"H1 Swing Low": 99.9}))
+    sweep = LiquidityEvent(time=None, label="H1 Swing Low swept", level_name="H1 Swing Low",
+                            level_price=99.9, kind="sweep_low")
+    monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
+    monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value=None))
+    _patch_sequence(monkeypatch, sweep_index=5, mss_index=7, invalidated=True,
+                    invalidation_reason="M5 closed back below the swept low (99.00) after the market structure shift.")
+
+    result = setup_mod.detect_setup(_dummy_candles())
+    assert result.state == "INVALIDATED"
+    assert result.direction == "BUY"
+    assert "swept low" in result.reason
+
+
+def test_bearish_m5_precursor_after_a_low_sweep_is_not_invalidation(monkeypatch):
+    """VAL-008 regression: right after a low sweep and before the bullish
+    MSS, M5 is naturally BEARISH. The old check (`m5.state == "BEARISH"`)
+    marked this fresh BUY candidate INVALIDATED. Real evaluate_sequence here."""
     _patch_structure(monkeypatch, _sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("BEARISH"))
     monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={"H1 Swing Low": 99.9}))
     sweep = LiquidityEvent(time=None, label="H1 Swing Low swept", level_name="H1 Swing Low",
@@ -157,8 +198,8 @@ def test_invalidated_when_sweep_confirmed_and_m5_reverses_against_direction(monk
     monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value=None))
 
     result = setup_mod.detect_setup(_dummy_candles())
-    assert result.state == "INVALIDATED"
-    assert result.direction == "BUY"
+    assert result.state == "DEVELOPING"
+    assert result.checklist["Liquidity Sweep"] is True
 
 
 def test_not_invalidated_when_no_sweep_has_fired_yet(monkeypatch):
@@ -185,7 +226,7 @@ def test_valid_setup_never_has_zero_or_negative_risk(monkeypatch):
                             level_price=99.9, kind="sweep_low")
     monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
     monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value="bullish"))
-    monkeypatch.setattr(setup_mod, "_check_retracement", Mock(return_value=True))
+    _patch_sequence(monkeypatch, **ALL_STEPS)
 
     candles = _dummy_candles()
     # Make the last close equal the 10-bar low exactly (a bar that closes on its own low).
@@ -193,7 +234,7 @@ def test_valid_setup_never_has_zero_or_negative_risk(monkeypatch):
     rows.append((100.0, 100.0, 98.0, 98.0))  # last bar: close == low == the window minimum
     candles["M5"] = make_candles(rows)
 
-    result = setup_mod.detect_setup(candles)
+    result = setup_mod.detect_setup(candles, now=_fresh_now(candles))
     assert result.state != "VALID", "a zero-risk stop must never be promoted to a VALID setup"
     if result.rr is not None:
         assert result.rr > 0
@@ -216,14 +257,33 @@ def test_mss_case_a_established_bullish_trend_without_shift_is_not_confirmed(mon
 
 
 def test_mss_case_b_actual_bullish_shift_is_confirmed(monkeypatch):
-    """A real shift (state=PULLBACK, last_mss=bullish) must satisfy MSS."""
+    """A real shift, tied to a bar after the sweep (the sequence's
+    mss_index), must satisfy MSS."""
     _patch_structure(monkeypatch, _sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("PULLBACK", last_mss="bullish"))
-    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={}))
-    monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[]))
+    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={"H1 Swing Low": 99.9}))
+    sweep = LiquidityEvent(time=None, label="H1 Swing Low swept", level_name="H1 Swing Low",
+                            level_price=99.9, kind="sweep_low")
+    monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
     monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value=None))
+    _patch_sequence(monkeypatch, sweep_index=5, mss_index=7)
 
     result = setup_mod.detect_setup(_dummy_candles())
     assert result.checklist["MSS"] is True
+
+
+def test_mss_case_d_current_close_beyond_swing_without_a_shift_bar_is_not_confirmed(monkeypatch):
+    """VAL-018: m5.last_mss only says "the latest close is beyond a swing"
+    (no recency). Without a shift bar after the sweep, it is not the MSS step."""
+    _patch_structure(monkeypatch, _sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("PULLBACK", last_mss="bullish"))
+    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={"H1 Swing Low": 99.9}))
+    sweep = LiquidityEvent(time=None, label="H1 Swing Low swept", level_name="H1 Swing Low",
+                            level_price=99.9, kind="sweep_low")
+    monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
+    monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value=None))
+    _patch_sequence(monkeypatch, sweep_index=5)
+
+    result = setup_mod.detect_setup(_dummy_candles())
+    assert result.checklist["MSS"] is False
 
 
 def test_mss_case_c_established_bearish_trend_without_shift_is_not_confirmed(monkeypatch):
@@ -238,9 +298,12 @@ def test_mss_case_c_established_bearish_trend_without_shift_is_not_confirmed(mon
 
 def test_mss_case_c_actual_bearish_shift_is_confirmed(monkeypatch):
     _patch_structure(monkeypatch, _sr("BEARISH"), _sr("BEARISH"), _sr("BEARISH"), _sr("PULLBACK", last_mss="bearish"))
-    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={}))
-    monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[]))
+    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={"H1 Swing High": 101.5}))
+    sweep = LiquidityEvent(time=None, label="H1 Swing High swept", level_name="H1 Swing High",
+                            level_price=101.5, kind="sweep_high")
+    monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
     monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value=None))
+    _patch_sequence(monkeypatch, sweep_index=5, mss_index=7)
 
     result = setup_mod.detect_setup(_dummy_candles())
     assert result.checklist["MSS"] is True
@@ -278,6 +341,8 @@ def test_sell_setup_invalidated_on_bullish_m5_reversal_after_sweep(monkeypatch):
                             level_price=100.1, kind="sweep_high")
     monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
     monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value=None))
+    _patch_sequence(monkeypatch, sweep_index=5, mss_index=7, invalidated=True,
+                    invalidation_reason="M5 closed back above the swept high (100.50) after the market structure shift.")
 
     result = setup_mod.detect_setup(_dummy_candles())
     assert result.state == "INVALIDATED"
@@ -314,9 +379,13 @@ def test_detect_setup_passes_closed_only_candles_to_sweep_and_displacement_check
     monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={}))
     monkeypatch.setattr(setup_mod, "detect_sweeps", sweeps_mock)
     monkeypatch.setattr(setup_mod, "detect_displacement", displacement_mock)
+    sequence_mock = _patch_sequence(monkeypatch)
 
     other_df = make_candles([(100, 100.3, 99.7, 100.1)] * 20)
     setup_mod.detect_setup({"H4": other_df, "H1": other_df, "M15": other_df, "M5": m5_df})
+    sequence_call_df = sequence_mock.call_args[0][0]
+    assert len(sequence_call_df) == len(closed_rows)
+    assert 200.0 not in sequence_call_df["open"].values
 
     sweeps_call_df = sweeps_mock.call_args[0][0]
     displacement_call_df = displacement_mock.call_args[0][0]
@@ -347,3 +416,47 @@ def test_detect_setup_zone_proximity_still_reflects_the_forming_candles_current_
     result = setup_mod.detect_setup({"H4": other_df, "H1": other_df, "M15": other_df, "M5": m5_df})
 
     assert result.checklist["Liquidity Sweep"] is True
+
+
+# ---------------------------------------------------------------------------
+# Stage 23A: the full sequence across bars (VAL-009) and staleness (VAL-011)
+# ---------------------------------------------------------------------------
+
+def _sequence_candles():
+    from tests.test_sequence import FULL, SWEEP_IDX
+    m5 = make_candles(FULL)
+    other = make_candles([(100, 100.3, 99.7, 100.1)] * 20)
+    sweep = LiquidityEvent(m5["time"].iloc[SWEEP_IDX], "Asian Low swept", "Asian Low", 98.8, "sweep_low")
+    return {"H4": other, "H1": other, "M15": other, "M5": m5}, sweep
+
+
+def test_sequence_spread_over_separate_bars_reaches_valid(monkeypatch):
+    """VAL-009 end to end, with the REAL evaluate_sequence: sweep (bar 30),
+    MSS + displacement (bar 32) and retracement (bar 34) are separate bars.
+    Before Stage 23A this could never be VALID (all three were read off bar 34)."""
+    candles, sweep = _sequence_candles()
+    _patch_structure(monkeypatch, _sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("PULLBACK", last_mss="bullish"))
+    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={"Asian Low": 98.8}))
+    monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
+
+    result = setup_mod.detect_setup(candles, now=_fresh_now(candles))
+    assert result.state == "VALID", result.reason
+    assert all(result.checklist.values())
+    assert result.context["displacement"] is None  # the latest bar alone shows no displacement
+    assert result.context["data_stale"] is False
+
+
+def test_stale_feed_never_reports_valid(monkeypatch):
+    """VAL-011: the same fully confirmed sequence, but no new M5 candle for
+    an hour (frozen feed / outage / weekend) — DEVELOPING, flagged stale."""
+    candles, sweep = _sequence_candles()
+    _patch_structure(monkeypatch, _sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("PULLBACK", last_mss="bullish"))
+    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={"Asian Low": 98.8}))
+    monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
+
+    stale_now = _fresh_now(candles) + timedelta(hours=1)
+    result = setup_mod.detect_setup(candles, now=stale_now)
+    assert result.state == "DEVELOPING"
+    assert "stale" in result.reason
+    assert result.context["data_stale"] is True
+    assert result.stop_loss is None and result.rr is None

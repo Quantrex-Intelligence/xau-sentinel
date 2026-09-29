@@ -167,3 +167,42 @@ def test_equal_level_detection_does_not_use_future_information():
     ]
     assert [(e.time, round(e.level_price, 1)) for e in equal_highs_partial] == \
            [(e.time, round(e.level_price, 1)) for e in equal_highs_full_matured_at_cutoff]
+
+
+# --- Stage 23A: VAL-014 — session levels exclude the bar under test ---------
+
+def _asian_session_with(extra_rows):
+    """Bars from 00:00 UTC (inside the default 00-06 Asian session): ten quiet
+    bars whose lows sit at 99.8, then `extra_rows`."""
+    rows = [(100.0, 100.2, 99.8, 100.0) for _ in range(10)] + list(extra_rows)
+    return make_candles(rows)
+
+
+def test_in_session_sweep_of_the_sessions_own_prior_low_registers():
+    """The sweep bar itself makes the new Asian low, so the full-session
+    Asian Low (99.0) includes it. Measured against the full session, the bar can
+    never sweep it. Measured against the bars before it (99.8), it does."""
+    from analysis.zones import compute_zones
+    df = _asian_session_with([(100.0, 100.1, 99.0, 100.0)])  # 0.8 through 99.8, closes back above
+    zones = compute_zones(df, None, None)
+    assert zones["Asian Low"] == 99.0
+
+    events = [e for e in detect_sweeps(df, zones) if e.level_name == "Asian Low"]
+    assert len(events) == 1
+    assert events[0].kind == "sweep_low"
+    assert events[0].level_price == 99.8  # the level actually swept, not the post-sweep extreme
+    assert events[0].time == df["time"].iloc[10]
+
+
+def test_earlier_session_sweep_does_not_vanish_when_a_later_bar_extends_the_extreme():
+    from analysis.zones import compute_zones
+    df = _asian_session_with([
+        (100.0, 100.1, 99.0, 100.0),   # genuine sweep of 99.8
+        (100.0, 100.1, 99.9, 100.0),
+        (99.5, 99.6, 98.0, 98.2),      # later breakdown extends the low to 98.0, closes below
+    ])
+    zones = compute_zones(df, None, None)
+    assert zones["Asian Low"] == 98.0
+
+    events = [e for e in detect_sweeps(df, zones) if e.level_name == "Asian Low"]
+    assert [e.time for e in events] == [df["time"].iloc[10]]
