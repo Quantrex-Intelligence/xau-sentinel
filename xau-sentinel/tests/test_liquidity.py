@@ -206,3 +206,37 @@ def test_earlier_session_sweep_does_not_vanish_when_a_later_bar_extends_the_extr
 
     events = [e for e in detect_sweeps(df, zones) if e.level_name == "Asian Low"]
     assert [e.time for e in events] == [df["time"].iloc[10]]
+
+
+# --- Stage 23A: VAL-025 / VAL-026 --------------------------------------------
+
+def test_run_of_three_equal_highs_emits_one_event_per_later_swing():
+    """VAL-025: highs at 120.2 / 119.9 / 120.0 used to emit the third point
+    twice (paired with both earlier points)."""
+    from tests.test_structure import _ramp_path, _flat_candles_from_path
+    path = _ramp_path([100, 90, 120.2, 95, 119.9, 96, 120.0], steps_per_leg=7)
+    df = _flat_candles_from_path(path, tail=[118, 117, 116])
+    equal_highs = [e for e in detect_equal_levels(df, tolerance=0.5) if e.kind == "equal_high"]
+    assert len(equal_highs) == 2
+    assert len({e.time for e in equal_highs}) == 2
+
+
+def test_two_levels_at_one_price_swept_by_one_wick_are_one_event():
+    """VAL-026: Previous Day Low == H1 Swing Low. One wick used to produce two
+    sweep events, and which name the A+ candidate showed was arbitrary."""
+    zones = {"Previous Day Low": 95.0, "H1 Swing Low": 95.0}
+    import pandas as pd
+    df = pd.concat([_base_candles(), make_candles([(95.2, 95.3, 94.3, 95.2)])], ignore_index=True)
+
+    events = detect_sweeps(df, zones, buffer=0.5)
+    assert len(events) == 1
+    assert events[0].level_name == "Previous Day Low"  # first in SWEEPABLE_LOW_LEVELS order, always
+    assert events[0].label == "Previous Day Low + H1 Swing Low swept"
+    assert events[0].level_price == 95.0
+
+
+def test_levels_at_different_prices_stay_separate_events():
+    zones = {"Previous Day Low": 95.0, "H1 Swing Low": 95.4}
+    import pandas as pd
+    df = pd.concat([_base_candles(), make_candles([(95.6, 95.7, 94.3, 95.6)])], ignore_index=True)
+    assert len(detect_sweeps(df, zones, buffer=0.5)) == 2

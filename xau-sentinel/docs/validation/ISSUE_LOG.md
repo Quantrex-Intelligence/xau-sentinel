@@ -4,7 +4,7 @@ Severity: **P0** critical · **P1** high · **P2** medium · **P3** low. Status 
 **Open** except where an entry's own **Status** line says otherwise — no fixes were made during the
 validation phase itself (feature freeze; see `TEST_PLAN.md`); targeted fixes for specific items have since
 been made in later hardening stages (Stage 19 fixed VAL-001/VAL-002/VAL-003/VAL-005; Stage 20 fixed VAL-004;
-Stage 23A fixed VAL-007..011/013..015/018 — see each entry's own Status line, and the git history for the exact commits). All line numbers refer to
+Stage 23A fixed VAL-007..011/013..015/018/025/026 — see each entry's own Status line, and the git history for the exact commits). All line numbers refer to
 the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line names a later commit.
 
 ---
@@ -333,7 +333,9 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
 ## P3 — Low
 
 - **VAL-025** `analysis/liquidity.py:69-80` — a run of 3+ equal highs/lows emits a duplicate event for the shared middle point (display-only impact, `[-3:]` slicing in evidence text).
+  - **Status: Resolved in Stage 23A.** Fix: `detect_equal_levels()` emits at most one event per swing point that equals any earlier one, so a run of 3+ equal highs/lows no longer duplicates the shared later points. Regression coverage: `tests/test_liquidity.py::test_run_of_three_equal_highs_emits_one_event_per_later_swing`.
 - **VAL-026** `analysis/liquidity.py:39-55` — two named levels sharing a price (e.g. Asian Low == H1 Swing Low) produce two sweep events for one wick; `select_candidate`'s tie-break picks one arbitrarily, so the displayed `level_name` is arbitrary.
+  - **Status: Resolved in Stage 23A.** Fix: `detect_sweeps()` merges sweeps of the same kind, bar and price into one event (`_merge_coincident_sweeps`); `level_name` is always the first name in `SWEEPABLE_*_LEVELS` order (deterministic) and the label lists every level swept (e.g. "Previous Day Low + H1 Swing Low swept"). Regression coverage: `tests/test_liquidity.py::test_two_levels_at_one_price_swept_by_one_wick_are_one_event`, `::test_levels_at_different_prices_stay_separate_events`.
 - **VAL-027** `mt5/market_data.py`, `mt5/account.py` — mock data uses Python's randomized `hash()` with no `PYTHONHASHSEED` pinned, so it is *not* actually deterministic across restarts despite the docstrings' claim (mock mode only).
 - **VAL-028** `mt5/connection.py:62-68` — `connect()` returns success even when the configured symbol isn't available in the terminal; surfaces later only as a generic "no candle data" error.
 - **VAL-029** `api/routes/journal.py` — trade insert and its FundedNext snapshot write are two separate DB connections/statements; a failure between them leaves a trade with no risk snapshot and a bare 500.

@@ -90,7 +90,26 @@ def detect_sweeps(df: pd.DataFrame, zones: dict, lookback_bars: int = 20, buffer
                 break
 
     events.sort(key=lambda e: e.time)
-    return events
+    return _merge_coincident_sweeps(events)
+
+
+def _merge_coincident_sweeps(events: List[LiquidityEvent]) -> List[LiquidityEvent]:
+    """Two named levels at the same price (e.g. Asian Low == H1 Swing Low)
+    swept by the same bar are ONE liquidity event, not two. The merged event
+    keeps the first name in SWEEPABLE_*_LEVELS order as `level_name` (a fixed,
+    deterministic choice) and lists every level in its label (Stage 23A,
+    VAL-026). Input must already be time-sorted; the sort is stable, so
+    order within one bar follows the level lists."""
+    merged: List[LiquidityEvent] = []
+    for e in events:
+        prev = next((m for m in merged if m.time == e.time and m.kind == e.kind
+                     and m.level_price == e.level_price), None)
+        if prev is None:
+            merged.append(LiquidityEvent(e.time, e.label, e.level_name, e.level_price, e.kind))
+        else:
+            names = prev.label[: -len(" swept")]
+            prev.label = f"{names} + {e.level_name} swept"
+    return merged
 
 
 def detect_equal_levels(df: pd.DataFrame, tolerance: float = None, recent_n: int = 6) -> List[LiquidityEvent]:
@@ -100,18 +119,19 @@ def detect_equal_levels(df: pd.DataFrame, tolerance: float = None, recent_n: int
     swings = find_swing_points(df)
     events: List[LiquidityEvent] = []
 
+    # One event per swing point that equals any EARLIER one — a run of 3+
+    # equal highs no longer emits the shared later points more than once
+    # (Stage 23A, VAL-025).
     highs = [p for p in swings if p.kind == "high"][-recent_n:]
-    for i in range(len(highs) - 1):
-        for j in range(i + 1, len(highs)):
-            if abs(highs[i].price - highs[j].price) <= tolerance:
-                events.append(LiquidityEvent(highs[j].time, "Equal highs detected", "Equal Highs",
-                                              highs[j].price, "equal_high"))
+    for j in range(1, len(highs)):
+        if any(abs(highs[i].price - highs[j].price) <= tolerance for i in range(j)):
+            events.append(LiquidityEvent(highs[j].time, "Equal highs detected", "Equal Highs",
+                                          highs[j].price, "equal_high"))
 
     lows = [p for p in swings if p.kind == "low"][-recent_n:]
-    for i in range(len(lows) - 1):
-        for j in range(i + 1, len(lows)):
-            if abs(lows[i].price - lows[j].price) <= tolerance:
-                events.append(LiquidityEvent(lows[j].time, "Equal lows detected", "Equal Lows",
-                                              lows[j].price, "equal_low"))
+    for j in range(1, len(lows)):
+        if any(abs(lows[i].price - lows[j].price) <= tolerance for i in range(j)):
+            events.append(LiquidityEvent(lows[j].time, "Equal lows detected", "Equal Lows",
+                                          lows[j].price, "equal_low"))
 
     return events
