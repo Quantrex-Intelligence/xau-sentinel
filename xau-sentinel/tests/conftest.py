@@ -110,6 +110,14 @@ def _default_thresholds(monkeypatch):
     monkeypatch.setattr(config, "MONITORING_INTERVAL_SECONDS", 20)
     monkeypatch.setattr(config, "MONITORING_EVENT_WARNING_MINUTES", 30)
     monkeypatch.setattr(config, "ALERT_RETENTION_DAYS", 30)
+    monkeypatch.setattr(config, "TELEGRAM_ENABLED", False)
+    monkeypatch.setattr(config, "TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setattr(config, "TELEGRAM_CHAT_ID", "")
+    monkeypatch.setattr(config, "TELEGRAM_POLL_INTERVAL_SECONDS", 5)
+    monkeypatch.setattr(config, "TELEGRAM_MAX_RETRIES", 3)
+    monkeypatch.setattr(config, "TELEGRAM_RETRY_BACKOFF_SECONDS", 2.0)
+    monkeypatch.setattr(config, "TELEGRAM_HTTP_TIMEOUT_SECONDS", 8.0)
+    monkeypatch.setattr(config, "NOTIFICATION_PROVIDER", "mock")
 
 
 @pytest.fixture(autouse=True)

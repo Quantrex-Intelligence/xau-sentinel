@@ -194,3 +194,18 @@ MONITORING_ENABLED = os.getenv("MONITORING_ENABLED", "true").strip().lower() == 
 MONITORING_INTERVAL_SECONDS = int(os.getenv("MONITORING_INTERVAL_SECONDS", 20))
 MONITORING_EVENT_WARNING_MINUTES = int(os.getenv("MONITORING_EVENT_WARNING_MINUTES", 30))
 ALERT_RETENTION_DAYS = int(os.getenv("ALERT_RETENTION_DAYS", 30))
+
+# --- Telegram Alert Delivery (Stage 14) — a downstream notification sink
+# for Stage 13's already-decided monitoring alerts; never re-runs the
+# deterministic engines. Disabled by default. Optional: left disabled/
+# unconfigured, the app still boots and runs normally. See ai/notifications/.
+TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "false").strip().lower() == "true"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+TELEGRAM_POLL_INTERVAL_SECONDS = int(os.getenv("TELEGRAM_POLL_INTERVAL_SECONDS", 5))
+TELEGRAM_MAX_RETRIES = int(os.getenv("TELEGRAM_MAX_RETRIES", 3))
+TELEGRAM_RETRY_BACKOFF_SECONDS = float(os.getenv("TELEGRAM_RETRY_BACKOFF_SECONDS", 2))
+TELEGRAM_HTTP_TIMEOUT_SECONDS = float(os.getenv("TELEGRAM_HTTP_TIMEOUT_SECONDS", 8.0))
+# "telegram" (default) or "mock" (offline, deterministic, no bot required —
+# used by tests/E2E, mirrors AI_PROVIDER's mock/real convention).
+NOTIFICATION_PROVIDER = os.getenv("NOTIFICATION_PROVIDER", "telegram").strip().lower()
