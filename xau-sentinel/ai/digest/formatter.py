@@ -10,7 +10,7 @@ concise for Telegram, matching the spec's own example, which likewise
 only lists the non-zero categories). Never "better"/"worse"/"improving"/
 "deteriorating" anywhere -- the previous-period line is plain counts.
 """
-from datetime import date
+from datetime import date, timedelta
 
 from ai.digest.models import DigestSummary, DigestType
 from ai.trade_review.models import StrategyAlignment
@@ -44,11 +44,16 @@ def _signed(value: float) -> str:
 
 
 def _format_period_range(digest_type: DigestType, start: date, end: date) -> str:
+    """start/end are the half-open [start, end) bounds build_digest() uses
+    internally -- end is the first day of the NEXT period, exclusive.
+    display_end converts that back to the last real day of THIS period for
+    a human-readable range."""
+    display_end = end - timedelta(days=1)
     if digest_type == DigestType.MONTHLY:
         return f"{start:%B %Y}"
-    if start.month == end.month:
-        return f"{start:%b %d}–{end.day}"
-    return f"{start:%b %d}–{end:%b %d}"
+    if start.month == display_end.month:
+        return f"{start:%b %d}–{display_end.day}"
+    return f"{start:%b %d}–{display_end:%b %d}"
 
 
 def _alignment_lines(counts) -> list:

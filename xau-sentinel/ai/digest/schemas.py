@@ -26,7 +26,7 @@ class PeriodComparisonOut(BaseModel):
 class DigestSummaryOut(BaseModel):
     digest_type: str
     period_start: str
-    period_end: str
+    period_end: str  # half-open: exclusive, the first day of the NEXT period -- see ai/digest/models.py
     generated_at: str
     overview: OverviewOut
     behavioral_patterns: List[BehavioralPatternOut]

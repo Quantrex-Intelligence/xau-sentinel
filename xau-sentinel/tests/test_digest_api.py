@@ -107,3 +107,20 @@ def test_send_is_idempotent_for_the_same_period(api_client, closed_trade_id, mon
 def test_send_400s_for_an_unknown_digest_type(api_client):
     resp = api_client.post("/api/digest/send", json={"digest_type": "YEARLY"})
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Stage 20 VAL-004: /preview and /send must use identical period semantics
+# -- both route through service.build_digest() with no reference override,
+# never a second implementation.
+# ---------------------------------------------------------------------------
+
+def test_preview_and_send_report_identical_period_bounds(api_client, closed_trade_id, monkeypatch):
+    shared_provider = MockNotificationProvider()
+    monkeypatch.setattr("ai.digest.service.get_notification_provider", lambda: shared_provider)
+
+    preview_body = api_client.post("/api/digest/preview", json={"digest_type": "WEEKLY"}).json()
+    send_body = api_client.post("/api/digest/send", json={"digest_type": "WEEKLY"}).json()
+
+    assert preview_body["period_start"] == send_body["summary"]["period_start"]
+    assert preview_body["period_end"] == send_body["summary"]["period_end"]

@@ -40,6 +40,11 @@ class PeriodComparison:
 class DigestSummary:
     digest_type: DigestType
     period_start: date
+    # Half-open interval: period_end is the FIRST DAY OF THE NEXT PERIOD
+    # (exclusive), not the last day of this one -- see
+    # ai/digest/service.py::compute_period_bounds(). Always the most
+    # recently COMPLETED period as of when this was built, never an
+    # in-progress one (Stage 20 fix, VAL-004).
     period_end: date
     generated_at: str
     overview: OverviewMetrics

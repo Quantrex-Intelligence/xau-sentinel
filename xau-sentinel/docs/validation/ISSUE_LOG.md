@@ -1,8 +1,11 @@
 # XAU Sentinel — Validation & Testing Phase — Issue Log
 
 Severity: **P0** critical · **P1** high · **P2** medium · **P3** low. Status for every item below is
-**Open** — no fixes were made during this phase (feature freeze; see `TEST_PLAN.md`). All line numbers refer
-to the codebase at commit `837f8b5` (Stage 18).
+**Open** except where an entry's own **Status** line says otherwise — no fixes were made during the
+validation phase itself (feature freeze; see `TEST_PLAN.md`); targeted fixes for specific items have since
+been made in later hardening stages (Stage 19 fixed VAL-001/VAL-002/VAL-003/VAL-005; Stage 20 fixed VAL-004
+— see each entry's own Status line, and the git history for the exact commits). All line numbers refer to
+the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line names a later commit.
 
 ---
 
@@ -40,11 +43,46 @@ to the codebase at commit `837f8b5` (Stage 18).
 ## P1 — High
 
 ### VAL-004 — Periodic Digest reports the period that just started, not the one that just ended
+- **Status: Resolved in Stage 20** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `ai/digest/service.py::run_digest_cycle()`/`attempt_send()` (Stage 18, this session's own build).
 - **Expected:** Per the spec's own worked example ("Period: Sep 21-27" shown in a digest whose scheduling example implies it fires the following Monday), a scheduled or previewed digest should summarize the week/month that just **completed**.
 - **Actual:** `run_digest_cycle()` calls `attempt_send(digest_type, reference=now.date())`, and `build_digest()`'s `compute_period_bounds()` returns the period **containing** `reference` — i.e. today. On the Monday the weekly digest is scheduled to fire, the "current period" it reports on is Monday-Sunday of the week that just began (almost no trades yet), while the week the user actually wants is only shown as the "previous period" comparison line. The same applies to `POST /api/digest/preview`/`/send` with no explicit reference — both always describe the in-progress period, never the last completed one.
 - **Evidence:** `ai/digest/service.py` — `reference or _now().date()` feeding directly into `compute_period_bounds`, with no "step back one period" logic anywhere in the scheduled path.
-- **Potential fix:** When firing from the scheduler (and as the default for `/preview` and `/send`), compute the period ending most recently before `reference` (i.e. what today's code computes as `previous_period_bounds` should become the primary period), or add an explicit `for_previous_period` flag distinguishing "summarize now" from "summarize what just ended."
+- **Root cause (confirmed in Stage 20):** exactly as diagnosed above — `build_digest()` computed the
+  in-progress period containing `reference` instead of the last completed one. Not a scheduler bug (it only
+  ever decides *when* to fire) and not a bug in `strategy_analytics`/`trade_review`/delivery/dedup (all
+  correctly period-agnostic).
+- **Fix:** `ai/digest/service.py`'s period-bounds functions now use an explicit half-open `[start, end)`
+  interval (`end` = first day of the *next* period, exclusive — previously `end` was the inclusive last day,
+  which is what made "is this period done yet" ambiguous). A new `completed_period_bounds(digest_type,
+  reference)` steps back one day from the period containing `reference` and returns *that* period's bounds
+  — `build_digest()` now calls this instead of `compute_period_bounds()` directly, so both the scheduler
+  and manual `/preview`/`/send` (which share the exact same code path, no second implementation) always
+  report the last completed period. `trades_in_period()`'s filter became half-open
+  (`start <= trade_date < end`) to match. `ai/digest/formatter.py::_format_period_range()` converts the
+  exclusive `end` back to an inclusive last day (`end - 1 day`) for the human-readable "Sep 21-27" display
+  line — the only place the boundary needed to become inclusive again. No changes to `ai/digest/store.py`,
+  `api/routes/digest.py`, or the scheduler's own day/time-matching logic (`should_send_now()`) — none of
+  those needed to change.
+- **Regression coverage:** 11 new tests across `tests/test_digest_service.py` (half-open bounds for both
+  digest types, the exact Monday-trigger / Sunday-still-in-progress / December→January / first-of-month
+  boundary cases named in the spec, a `SESSION_TIMEZONE`-anchoring case using a UTC instant that falls on a
+  different local calendar date, and a proof the "previous period" comparison still populates one period
+  further back than the newly-corrected anchor), `tests/test_digest_formatter.py` (inclusive display-range
+  rendering from the half-open bounds), and `tests/test_digest_api.py` (`/preview` and `/send` report
+  byte-identical `period_start`/`period_end` for the same underlying "now" — proving the "no second
+  implementation" requirement structurally). All existing digest tests that encoded the old, buggy
+  in-progress-period semantics were updated to the corrected expected values (not merely left passing by
+  coincidence).
+- **Verification result:** live-verified against the real dev server on 2026-09-29 (a Tuesday):
+  `POST /api/digest/preview {"digest_type":"WEEKLY"}` returned `period_start=2026-09-21, period_end=2026-09-28`
+  (the completed prior week, correctly excluding the in-progress Sep 28–Oct 4 week); MONTHLY returned
+  `period_start=2026-08-01, period_end=2026-09-01` (completed August, correctly excluding in-progress
+  September). Full suite: 1076/1076 backend (1065 baseline + 11 new), 133/133 frontend, 14/14 E2E
+  checklists, lint/typecheck/build all clean — zero regressions elsewhere.
+- **Potential fix (superseded by the above):** ~~When firing from the scheduler (and as the default for
+  `/preview` and `/send`), compute the period ending most recently before `reference`...~~ — this is exactly
+  what was implemented.
 
 ### VAL-005 — `float` NaN silently defeats every `is None` check on numeric journal fields
 - **Subsystem:** `ai/trade_review/patterns.py::closed_trades()` (Stage 16), consumed by `ai/trade_review/rules.py` (Stage 16), `ai/strategy_analytics/metrics.py` (Stage 17), `ai/digest/service.py` (Stage 18).

@@ -40,26 +40,47 @@ def _parse_time(value: str) -> time:
 # ---------------------------------------------------------------------------
 
 def compute_period_bounds(digest_type: DigestType, reference: date) -> Tuple[date, date]:
+    """The period CONTAINING reference, as a half-open [start, end) interval
+    -- end is the first day of the NEXT period (exclusive), not the last
+    day of this one. Callers that want the last real day of the period
+    should use `end - timedelta(days=1)` (see
+    ai/digest/formatter.py::_format_period_range())."""
     if digest_type == DigestType.WEEKLY:
         start = reference - timedelta(days=reference.weekday())  # Monday
-        end = start + timedelta(days=6)  # Sunday
+        end = start + timedelta(days=7)  # next Monday
     else:
         start = reference.replace(day=1)
-        end = start.replace(day=calendar.monthrange(start.year, start.month)[1])
+        days_in_month = calendar.monthrange(start.year, start.month)[1]
+        end = start + timedelta(days=days_in_month)  # 1st of next month
     return start, end
 
 
-def previous_period_bounds(digest_type: DigestType, start: date, end: date) -> Tuple[date, date]:
-    if digest_type == DigestType.WEEKLY:
-        return start - timedelta(days=7), end - timedelta(days=7)
-    # MONTHLY: step one day before this month's start to land in the prior
-    # month, then re-derive its own bounds rather than hand-rolling month
-    # arithmetic a second time.
-    prior_reference = start - timedelta(days=1)
-    return compute_period_bounds(digest_type, prior_reference)
+def _step_back_one_period(digest_type: DigestType, period_start: date) -> Tuple[date, date]:
+    """The period immediately before the one starting at period_start."""
+    day_before = period_start - timedelta(days=1)
+    return compute_period_bounds(digest_type, day_before)
+
+
+def completed_period_bounds(digest_type: DigestType, reference: date) -> Tuple[date, date]:
+    """The most recently COMPLETED period as of `reference` (Stage 20 fix
+    for VAL-004: the period CONTAINING reference -- e.g. "today" when the
+    scheduler fires -- is still in progress and must never be reported as
+    if it were done; this steps back to the one immediately before it).
+    This is what build_digest() actually reports on."""
+    current_start, _ = compute_period_bounds(digest_type, reference)
+    return _step_back_one_period(digest_type, current_start)
+
+
+def previous_period_bounds(digest_type: DigestType, period_start: date) -> Tuple[date, date]:
+    """Given a reported period's own start, the period immediately before
+    it -- used only for the "previous period" comparison section (one
+    more step back from whatever period is being reported)."""
+    return _step_back_one_period(digest_type, period_start)
 
 
 def trades_in_period(trades: List[Dict[str, Any]], start: date, end: date) -> List[Dict[str, Any]]:
+    """start/end are half-open: [start, end) -- end (the first day of the
+    NEXT period) is excluded."""
     result = []
     for trade in trades:
         raw = trade.get("trade_date")
@@ -67,7 +88,7 @@ def trades_in_period(trades: List[Dict[str, Any]], start: date, end: date) -> Li
             trade_date = datetime.strptime(raw, "%Y-%m-%d").date()
         except (TypeError, ValueError):
             continue  # missing/malformed trade_date -> excluded, never guessed into a period
-        if start <= trade_date <= end:
+        if start <= trade_date < end:
             result.append(trade)
     return result
 
@@ -78,7 +99,7 @@ def trades_in_period(trades: List[Dict[str, Any]], start: date, end: date) -> Li
 
 def build_digest(digest_type: DigestType, reference: Optional[date] = None) -> DigestSummary:
     reference = reference or _now().date()
-    start, end = compute_period_bounds(digest_type, reference)
+    start, end = completed_period_bounds(digest_type, reference)
 
     all_closed = patterns.closed_trades()
     period_trades = trades_in_period(all_closed, start, end)
@@ -86,7 +107,7 @@ def build_digest(digest_type: DigestType, reference: Optional[date] = None) -> D
     overview = strategy_metrics.compute_overview(period_trades)
     behavioral_patterns = patterns.aggregate_patterns(period_trades)
 
-    prev_start, prev_end = previous_period_bounds(digest_type, start, end)
+    prev_start, prev_end = previous_period_bounds(digest_type, start)
     prev_trades = trades_in_period(all_closed, prev_start, prev_end)
 
     comparison = None

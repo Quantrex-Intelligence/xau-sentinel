@@ -2,7 +2,7 @@
 never computes anything, never phrases a comparison as "better"/"worse"."""
 from datetime import date
 
-from ai.digest.formatter import format_digest_telegram
+from ai.digest.formatter import _format_period_range, format_digest_telegram
 from ai.digest.models import DigestSummary, DigestType, PeriodComparison
 from ai.strategy_analytics.models import OverviewMetrics
 from ai.trade_review.models import BehavioralPattern, DeviationType, StrategyAlignment
@@ -27,7 +27,10 @@ def _overview(**overrides):
 
 def _summary(**overrides):
     defaults = dict(
-        digest_type=DigestType.WEEKLY, period_start=date(2026, 9, 21), period_end=date(2026, 9, 27),
+        # Half-open: period_end is the first day of the NEXT period
+        # (exclusive) -- Sep 21 (Mon) through Sep 27 (Sun) inclusive is
+        # [2026-09-21, 2026-09-28).
+        digest_type=DigestType.WEEKLY, period_start=date(2026, 9, 21), period_end=date(2026, 9, 28),
         generated_at="2026-09-28T00:00:00+00:00", overview=_overview(), behavioral_patterns=[],
         previous_period=None,
     )
@@ -97,6 +100,35 @@ def test_negative_total_r_rendered_with_minus_sign_not_double_signed():
     text = format_digest_telegram(_summary(overview=_overview(total_r=-1.5, avg_r=-0.25)))
     assert "-1.50R" in text
     assert "Avg R: -0.25" in text
+
+
+# ---------------------------------------------------------------------------
+# Stage 20 VAL-004: the human-readable "Period" line must show the correct
+# INCLUSIVE display range given the half-open (start, end) bounds
+# build_digest() now produces internally.
+# ---------------------------------------------------------------------------
+
+def test_weekly_period_range_displays_the_inclusive_last_day():
+    # Half-open [2026-09-21, 2026-09-28) -> displayed as "Sep 21-27".
+    text = _format_period_range(DigestType.WEEKLY, date(2026, 9, 21), date(2026, 9, 28))
+    assert text == "Sep 21–27"
+
+
+def test_weekly_period_range_spanning_two_months_displays_both_month_names():
+    # Half-open [2026-09-28, 2026-10-05) -> displayed as "Sep 28-Oct 04".
+    text = _format_period_range(DigestType.WEEKLY, date(2026, 9, 28), date(2026, 10, 5))
+    assert text == "Sep 28–Oct 04"
+
+
+def test_monthly_period_range_shows_month_and_year_unaffected_by_end_semantics():
+    # Half-open [2026-01-01, 2026-02-01) -> displayed as "January 2026".
+    text = _format_period_range(DigestType.MONTHLY, date(2026, 1, 1), date(2026, 2, 1))
+    assert text == "January 2026"
+
+
+def test_full_digest_renders_the_inclusive_period_line():
+    text = format_digest_telegram(_summary())
+    assert "Sep 21–27" in text
 
 
 def test_never_uses_comparative_or_predictive_language():
