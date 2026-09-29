@@ -27,6 +27,8 @@ import type {
   Settings,
   Setup,
   SimilarityResult,
+  DimensionBreakdown,
+  StrategyAnalytics,
   StrategyEvaluation,
   Structure,
   Timeframe,
@@ -157,4 +159,9 @@ export const api = {
   generateTradeReview: (tradeId: number) =>
     request<TradeReview>(`/api/trade-review/${tradeId}/generate`, { method: "POST" }),
   tradeReviewSummary: () => request<TradeReviewSummary>("/api/trade-review/summary"),
+
+  // Stage 17
+  strategyAnalytics: () => request<StrategyAnalytics>("/api/strategy-analytics"),
+  strategyAnalyticsDimension: (dimension: string) =>
+    request<DimensionBreakdown>(`/api/strategy-analytics/dimensions/${dimension}`),
 };

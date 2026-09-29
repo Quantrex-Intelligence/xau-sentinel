@@ -23,7 +23,7 @@ from journal.database import init_db
 from risk.fundednext_journal import init_table as init_fundednext_context_table
 from api.routes import (
     ai, alerts, explanations, fundednext, journal, knowledge, market, market_intelligence, memory,
-    monitoring, notifications, risk, settings, setup, similarity, strategy, trade_review,
+    monitoring, notifications, risk, settings, setup, similarity, strategy, strategy_analytics, trade_review,
 )
 from api import ws
 
@@ -87,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications.router)
     app.include_router(explanations.router)
     app.include_router(trade_review.router)
+    app.include_router(strategy_analytics.router)
     app.include_router(ws.router)
 
     return app

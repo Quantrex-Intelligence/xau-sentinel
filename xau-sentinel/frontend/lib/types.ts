@@ -315,6 +315,57 @@ export interface TradeReviewSummary {
   insufficient_sample_note: string | null;
 }
 
+/** Stage 17's descriptive-only rollup over completed trades — no
+ * prediction, scoring, or "best setup" labeling anywhere. Alignment
+ * counts and the adherence breakdown reuse Stage 16's TradeReview
+ * classification directly (see ai/strategy_analytics/metrics.py). */
+export interface StrategyAnalyticsOverview {
+  total_trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  win_rate: number;
+  total_r: number;
+  avg_r: number;
+  profit_factor: number | null;
+  median_r: number | null;
+  avg_holding_duration_minutes: number | null;
+  strategy_alignment_counts: Record<StrategyAlignment, number>;
+  risk_alignment_counts: Record<StrategyAlignment, number>;
+}
+
+export interface AdherenceBucket {
+  alignment: StrategyAlignment;
+  trade_count: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  open: number;
+  unknown: number;
+}
+
+export interface StrategyAnalytics {
+  overview: StrategyAnalyticsOverview;
+  adherence: AdherenceBucket[];
+}
+
+export interface DimensionBreakdownRow {
+  value: string;
+  sample_size: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  win_rate: number | null;
+  avg_r: number | null;
+  total_r: number;
+  insufficient_sample: boolean;
+}
+
+export interface DimensionBreakdown {
+  dimension: string;
+  rows: DimensionBreakdownRow[];
+}
+
 export type FundedNextAccountType = "stellar_2step" | "stellar_lite";
 export type FundedNextPhase = "challenge" | "funded";
 export type SafetyLevel = "SAFE" | "WARNING" | "CRITICAL" | "BREACHED" | "UNKNOWN";

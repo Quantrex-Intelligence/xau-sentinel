@@ -3,6 +3,8 @@
 import { Panel } from "@/components/layout/panel";
 import { CumulativeRChart } from "@/components/analytics/cumulative-r-chart";
 import { WinLossBar } from "@/components/analytics/win-loss-bar";
+import { StrategyAlignmentPanel } from "@/components/analytics/strategy-alignment-panel";
+import { DimensionBreakdownPanel } from "@/components/analytics/dimension-breakdown-panel";
 import { api } from "@/lib/api";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
@@ -37,6 +39,9 @@ export default function AnalyticsPage() {
       <Panel title="Win / Loss Distribution">
         <WinLossBar stats={stats} />
       </Panel>
+
+      <StrategyAlignmentPanel />
+      <DimensionBreakdownPanel />
     </div>
   );
 }

@@ -215,3 +215,8 @@ NOTIFICATION_PROVIDER = os.getenv("NOTIFICATION_PROVIDER", "telegram").strip().l
 # below it, the summary explicitly states the sample is insufficient
 # rather than inventing significance. See ai/trade_review/.
 TRADE_REVIEW_MIN_PATTERN_SAMPLE = int(os.getenv("TRADE_REVIEW_MIN_PATTERN_SAMPLE", 3))
+
+# --- Strategy Analytics (Stage 17) — a dimension breakdown row below this
+# many closed trades is labeled INSUFFICIENT SAMPLE; the raw count is
+# still shown, never hidden. See ai/strategy_analytics/.
+STRATEGY_ANALYTICS_MIN_SAMPLE = int(os.getenv("STRATEGY_ANALYTICS_MIN_SAMPLE", 5))
