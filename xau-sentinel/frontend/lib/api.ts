@@ -5,6 +5,7 @@
  */
 import type {
   AiConfig,
+  AlertExplanation,
   AlertItem,
   Analytics,
   Candle,
@@ -142,4 +143,10 @@ export const api = {
     request<{ acknowledged: boolean }>(`/api/monitoring/alerts/${id}/acknowledge`, { method: "POST" }),
   acknowledgeAllAlerts: () =>
     request<{ acknowledged: boolean; count: number }>("/api/monitoring/alerts/acknowledge-all", { method: "POST" }),
+
+  // Stage 15
+  explainAlert: (alertId: number) => request<AlertExplanation>(`/api/explanations/alert/${alertId}`),
+  regenerateAlertExplanation: (alertId: number) =>
+    request<AlertExplanation>(`/api/explanations/alert/${alertId}/generate`, { method: "POST" }),
+  explainTrade: (tradeId: number) => request<AlertExplanation>(`/api/explanations/trade/${tradeId}`),
 };

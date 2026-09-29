@@ -79,6 +79,15 @@ def create_alert(alert: AlertEvent) -> Optional[AlertEvent]:
         return _row_to_alert(row)
 
 
+def get_by_id(alert_id: int) -> Optional[AlertEvent]:
+    """A plain indexed single-row lookup — added for Stage 15's explanation
+    layer, which needs to fetch one specific alert by id rather than
+    scanning list_alerts(). Read-only; no detection/rule logic here."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT * FROM monitoring_alerts WHERE id = ?", (alert_id,)).fetchone()
+    return _row_to_alert(row) if row else None
+
+
 def list_alerts(alert_type: Optional[str] = None, severity: Optional[str] = None,
                  acknowledged: Optional[bool] = None, limit: int = 50) -> List[AlertEvent]:
     query = "SELECT * FROM monitoring_alerts WHERE 1=1"

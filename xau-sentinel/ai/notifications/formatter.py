@@ -128,9 +128,19 @@ _FORMATTERS = {
 }
 
 
+def _with_explanation_footer(text: str, alert: AlertEvent) -> str:
+    """Stage 15: a plain, informational pointer to the in-app explanation
+    for this alert — never a Telegram-side control channel (no bot
+    commands, nothing triggers generation from here)."""
+    if alert.id is None:
+        return text
+    return f"{text}\n\nAlert ID: {alert.id}\n\nOpen XAU Sentinel to view explanation."
+
+
 def format_alert(alert: AlertEvent) -> str:
     formatter = _FORMATTERS.get(alert.type, _format_generic)
     try:
-        return formatter(alert)
+        text = formatter(alert)
     except Exception:  # noqa: BLE001 - a malformed/unexpected payload must never crash delivery
-        return _format_generic(alert)
+        text = _format_generic(alert)
+    return _with_explanation_footer(text, alert)

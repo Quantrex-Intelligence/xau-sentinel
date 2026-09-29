@@ -88,10 +88,7 @@ def attempt_deliveries() -> List[AlertDelivery]:
         if not _is_due(delivery, now):
             continue
 
-        # ai/monitoring/store.py has no get-by-id lookup — list_alerts()
-        # (the same, unmodified function discovery already uses) is the
-        # only reuse-shaped way to fetch it back.
-        alert = next((a for a in monitoring_store.list_alerts(limit=100) if a.id == delivery.alert_id), None)
+        alert = monitoring_store.get_by_id(delivery.alert_id)
         if alert is None:
             continue  # the underlying alert was purged by retention — nothing to send
 

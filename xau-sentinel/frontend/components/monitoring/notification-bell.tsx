@@ -5,7 +5,7 @@ import { Bell } from "lucide-react";
 import { api } from "@/lib/api";
 import { usePolling } from "@/lib/use-polling";
 import { cn } from "@/lib/utils";
-import type { MonitoringAlert } from "@/lib/types";
+import type { AlertExplanation, MonitoringAlert } from "@/lib/types";
 
 const SEVERITY_STYLE: Record<string, string> = {
   INFO: "bg-muted text-muted-foreground",
@@ -29,8 +29,68 @@ function formatTimestamp(iso: string): string {
   }
 }
 
+/** One compact, labeled subsection — omitted entirely when empty, per
+ * the "avoid padding a section with nothing useful" convention this
+ * project already follows for evidence rendering. */
+function ExplanationSection({ label, lines }: { label: string; lines: string[] }) {
+  if (lines.length === 0) return null;
+  return (
+    <div className="mt-1.5">
+      <p className="text-[9px] font-semibold text-muted-foreground uppercase">{label}</p>
+      {lines.map((line, i) => (
+        <p key={i} className="text-foreground">{line}</p>
+      ))}
+    </div>
+  );
+}
+
+/** Stage 15: the structured FACT/CONTEXT/INTERPRETATION explanation for
+ * one alert, rendered inline (no new modal/page — matches "keep the
+ * interface compact and readable"). */
+function ExplanationPanel({ explanation }: { explanation: AlertExplanation }) {
+  return (
+    <div className="mt-2 border-t border-border pt-2 text-[11px]">
+      <p className="text-foreground font-medium">{explanation.summary}</p>
+      <ExplanationSection label="Deterministic facts" lines={explanation.deterministic_facts} />
+      <ExplanationSection label="Context" lines={explanation.supporting_context} />
+      {explanation.historical_context && (
+        <ExplanationSection label="Historical context" lines={[explanation.historical_context]} />
+      )}
+      <ExplanationSection label="Strategy knowledge" lines={explanation.knowledge_context} />
+      <ExplanationSection label="Risk" lines={explanation.risk_context} />
+      <ExplanationSection label="Interpretation" lines={[explanation.interpretation]} />
+      <ExplanationSection label="Uncertainties" lines={explanation.uncertainties} />
+      {explanation.sources.length > 0 && (
+        <p className="mt-1.5 text-[9px] text-muted-foreground">Sources: {explanation.sources.join(", ")}</p>
+      )}
+    </div>
+  );
+}
+
 function AlertRow({ alert, onAcknowledge }: { alert: MonitoringAlert; onAcknowledge: (id: number) => void }) {
   const isAPlus = alert.type === "APLUS_SETUP_DETECTED";
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [explanation, setExplanation] = useState<AlertExplanation | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  async function handleToggleExplain() {
+    const next = !showExplanation;
+    setShowExplanation(next);
+    if (next && explanation === null && !loading) {
+      setLoading(true);
+      setError(false);
+      try {
+        const result = await api.explainAlert(alert.id);
+        setExplanation(result);
+      } catch {
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
   return (
     <div
       className={cn(
@@ -44,13 +104,31 @@ function AlertRow({ alert, onAcknowledge }: { alert: MonitoringAlert; onAcknowle
         <span className="text-[10px] text-muted-foreground ml-auto">{formatTimestamp(alert.timestamp)}</span>
       </div>
       <p className="text-foreground mt-1">{alert.message}</p>
-      {!alert.acknowledged && (
+      <div className="flex items-center gap-3 mt-1">
+        {!alert.acknowledged && (
+          <button
+            onClick={() => onAcknowledge(alert.id)}
+            className="text-[10px] text-muted-foreground hover:text-foreground underline"
+          >
+            Acknowledge
+          </button>
+        )}
         <button
-          onClick={() => onAcknowledge(alert.id)}
-          className="text-[10px] text-muted-foreground hover:text-foreground underline mt-1"
+          onClick={handleToggleExplain}
+          className="text-[10px] text-muted-foreground hover:text-foreground underline"
         >
-          Acknowledge
+          {showExplanation ? "Hide explanation" : "Explain"}
         </button>
+      </div>
+
+      {showExplanation && (
+        loading ? (
+          <p className="text-[10px] text-muted-foreground mt-2">Loading explanation…</p>
+        ) : error ? (
+          <p className="text-[10px] text-muted-foreground mt-2">Explanation unavailable.</p>
+        ) : explanation ? (
+          <ExplanationPanel explanation={explanation} />
+        ) : null
       )}
     </div>
   );

@@ -236,6 +236,30 @@ export interface MonitoringAlert {
   timestamp: string;
 }
 
+/** Stage 15's structured, FACT/CONTEXT/INTERPRETATION explanation for an
+ * already-existing alert or trade — never a place new data gets invented;
+ * every field except `interpretation` is plain Python, built before any
+ * LLM call. See ai/explanations/models.py::AlertExplanation. */
+export interface AlertExplanation {
+  subject_type: "alert" | "trade";
+  subject_id: number;
+  explanation_type: string;
+  summary: string;
+  deterministic_facts: string[];
+  supporting_context: string[];
+  risk_context: string[];
+  historical_context: string;
+  knowledge_context: string[];
+  memory_context: string[];
+  uncertainties: string[];
+  interpretation: string;
+  sources: string[];
+  generated_at: string;
+  llm_provider: string | null;
+  llm_model: string | null;
+  llm_error: string | null;
+}
+
 export type FundedNextAccountType = "stellar_2step" | "stellar_lite";
 export type FundedNextPhase = "challenge" | "funded";
 export type SafetyLevel = "SAFE" | "WARNING" | "CRITICAL" | "BREACHED" | "UNKNOWN";

@@ -1,5 +1,6 @@
-"""E2E checklist for Stage 13 (Real-Time Monitoring & In-App Alert Engine).
-Requires both servers running in MOCK mode:
+"""E2E checklist for Stage 13 (Real-Time Monitoring & In-App Alert Engine),
+extended in Stage 15 with the AI Alert Explanation Layer. Requires both
+servers running in MOCK mode:
     MODE=mock AI_PROVIDER=mock uvicorn api.main:app --host 127.0.0.1 --port 8000
     (cd frontend && npm run dev)   # http://localhost:3000
 
@@ -61,6 +62,30 @@ def main() -> int:
     check("API: legacy /api/alerts is untouched and still responds",
           legacy_resp.status_code == 200 and isinstance(legacy_resp.json(), list))
 
+    # --- Stage 15: explanation endpoint (robust to zero pre-existing alerts) ---
+    aplus_before = httpx.get(f"{API_BASE}/api/strategy/aplus", timeout=15).json()
+
+    explanation_resp = None
+    if alerts:
+        explanation_resp = httpx.get(f"{API_BASE}/api/explanations/alert/{alerts[0]['id']}", timeout=20)
+        check("API: /api/explanations/alert/{id} returns 200 for an existing alert",
+              explanation_resp.status_code == 200)
+        body = explanation_resp.json()
+        check("API: explanation response has the expected shape",
+              {"summary", "deterministic_facts", "interpretation", "uncertainties", "sources"} <= set(body.keys()))
+        explanation_text = explanation_resp.text.lower()
+        check("API: explanation never mentions probability/win-forecast/directive language",
+              "probability" not in explanation_text and "buy now" not in explanation_text
+              and "sell now" not in explanation_text)
+    else:
+        not_found_resp = httpx.get(f"{API_BASE}/api/explanations/alert/999999999", timeout=15)
+        check("API: explanation endpoint 404s gracefully when the alert doesn't exist",
+              not_found_resp.status_code == 404)
+
+    aplus_after = httpx.get(f"{API_BASE}/api/strategy/aplus", timeout=15).json()
+    check("API: A+ rating is unchanged before/after requesting an explanation",
+          aplus_before.get("rating") == aplus_after.get("rating"))
+
     # --- Browser checks ---
     console_errors, page_errors, failed_requests = [], [], []
     with sync_playwright() as p:
@@ -103,6 +128,23 @@ def main() -> int:
         page.wait_for_timeout(2000)
         check("UI: dropdown remains stable across a polling cycle (no crash)",
               wait_for(page, "Notifications", timeout=5000))
+
+        # Stage 15: clicking Explain on a row renders the structured
+        # explanation (robust to zero rows — only attempted if one exists).
+        explain_button = page.get_by_text("Explain", exact=True)
+        if explain_button.count() > 0:
+            try:
+                explain_button.first.click(timeout=5000)
+                page.wait_for_timeout(1500)
+                facts_or_unavailable = (
+                    wait_for(page, "Deterministic facts", timeout=8000)
+                    or wait_for(page, "Explanation unavailable.", timeout=1000)
+                )
+                check("UI: clicking Explain renders deterministic facts or a safe fallback", facts_or_unavailable)
+            except Exception:
+                check("UI: clicking Explain renders deterministic facts or a safe fallback", False)
+        else:
+            check("UI: no alert rows present to test Explain on (tolerated, same zero-alerts convention)", True)
 
         page.goto(f"{BASE}/setups", wait_until="networkidle", timeout=30000)
         check("UI: bell also renders on the Setups page (global, not page-local)",
