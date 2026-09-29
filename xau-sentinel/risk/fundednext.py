@@ -7,7 +7,6 @@ market analysis / setup detection and never feeds back into them.
 """
 import config
 from mt5 import account as mt5_account
-from risk import day_tracker
 from risk.models import AccountType, FundedNextStatus, Phase, SafetyLevel, Violation
 from risk.rules import ON_DEMAND_CONSISTENCY_PCT, get_rules
 
@@ -25,8 +24,24 @@ def compute_status(account_type: AccountType, phase: Phase, consistency_enabled:
             reason=snapshot.error or "Account data unavailable.",
         )
 
+    # Daily-loss anchor: derived from today's REALIZED P/L, not from
+    # "whatever balance was first observed today" (day_tracker.py's old
+    # approach — see docs/validation/ISSUE_LOG.md VAL-002. A trade closed
+    # before the app's first check on a new day was silently absorbed into
+    # that anchor, understating the actual daily loss used). If the
+    # realized-P/L history can't be determined at all, this is
+    # financial-safety-sensitive: fail toward an explicit UNKNOWN rather
+    # than silently falling back to an anchor that might be wrong.
     today = mt5_account.server_now().date()
-    day_start_balance = day_tracker.get_day_start_balance(today, snapshot.balance)
+    history = mt5_account.get_daily_pnl_history(days=45)
+    if history is None:
+        return FundedNextStatus(
+            account_type=account_type, phase=phase, mode=mode, data_available=False,
+            safety_level=SafetyLevel.UNKNOWN,
+            reason="Unable to determine today's realized P/L; the daily-loss anchor cannot be trusted.",
+        )
+    today_realized_pnl = next((pnl for d, pnl in history if d == today), 0.0)
+    day_start_balance = snapshot.balance - today_realized_pnl
 
     daily_loss_amount = rules.daily_loss_pct * initial_balance
     daily_loss_floor = day_start_balance - daily_loss_amount
@@ -47,11 +62,8 @@ def compute_status(account_type: AccountType, phase: Phase, consistency_enabled:
         if profit_target and profit_target > 0 else None
     )
 
-    trading_days_completed = None
+    trading_days_completed = len(history)
     trading_days_required = rules.min_trading_days if phase == Phase.CHALLENGE else None
-    history = mt5_account.get_daily_pnl_history(days=45)
-    if history is not None:
-        trading_days_completed = len(history)
 
     largest_day_pct_of_profit = None
     if consistency_enabled and history:

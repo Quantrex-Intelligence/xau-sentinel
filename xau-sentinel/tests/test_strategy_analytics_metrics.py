@@ -175,3 +175,33 @@ def test_dimension_breakdown_planned_rr_formats_consistently():
 def test_dimension_breakdown_unknown_dimension_raises_value_error():
     with pytest.raises(ValueError):
         metrics.compute_dimension_breakdown([_trade(1)], "not_a_real_dimension")
+
+
+# ---------------------------------------------------------------------------
+# Stage 19 VAL-005 regression: going through the REAL DB path (not a
+# hand-built dict), a group where every trade has a genuinely missing
+# r_multiple must report total_r == 0.0 and avg_r is None -- never NaN
+# (which serializes as a misleading JSON null even for a group with real
+# wins/losses, as observed live during the Stage 18 validation phase).
+# ---------------------------------------------------------------------------
+
+def test_dimension_breakdown_reports_zero_not_nan_for_real_missing_r_multiple(temp_db):
+    import math
+    from ai.trade_review import patterns
+    from journal import trades as trades_repo
+
+    for i in range(2):
+        trade_id = trades_repo.create_trade(
+            {"trade_date": "2026-01-05", "trade_time": f"09:0{i}", "symbol": "XAUUSD", "direction": "BUY",
+             "entry": 3700.0, "stop_loss": 3690.0, "take_profit": 3730.0, "planned_rr": 3.0},
+            {"h1_bias": "BULLISH", "liquidity": "Previous Day Low swept", "mss": "Bullish", "displacement": "Bullish"},
+        )
+        # r_multiple deliberately omitted -- closes with only result/exit_price known.
+        trades_repo.close_trade(trade_id, {"exit_price": 3730.0, "result": "WIN", "duration_minutes": 45})
+
+    trades = patterns.closed_trades()
+    breakdown = metrics.compute_dimension_breakdown(trades, "direction")
+    row = next(r for r in breakdown.rows if r.value == "BUY")
+    assert row.total_r == 0.0
+    assert row.avg_r is None
+    assert not (isinstance(row.total_r, float) and math.isnan(row.total_r))

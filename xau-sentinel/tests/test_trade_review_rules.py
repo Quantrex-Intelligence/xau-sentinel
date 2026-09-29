@@ -258,3 +258,28 @@ def test_rules_module_never_calls_live_market_or_account_functions():
     code = _source_without_module_docstring(rules_mod)
     for banned in ("get_all_candles", "compute_status(", "build_snapshot", "detect_setup("):
         assert banned not in code
+
+
+# ---------------------------------------------------------------------------
+# Stage 19 VAL-005 regression: a trade with a genuinely missing planned_rr,
+# fetched through the real DB (not a hand-built dict), must classify as
+# UNKNOWN -- never NOT_ALIGNED. Before the ai/trade_review/patterns.py fix,
+# NaN (not None) survived the DataFrame->dict conversion, so
+# `planned_rr is None` was False and `NaN >= min_rr` (always False in
+# Python) fell through to NOT_ALIGNED instead.
+# ---------------------------------------------------------------------------
+
+def test_execution_alignment_is_unknown_not_not_aligned_for_a_real_missing_planned_rr(temp_db):
+    from ai.trade_review import patterns
+    from journal import trades as trades_repo
+
+    trade_id = trades_repo.create_trade(
+        {"trade_date": "2026-01-05", "trade_time": "09:00", "symbol": "XAUUSD", "direction": "BUY",
+         "entry": 3700.0, "stop_loss": 3690.0, "take_profit": 3730.0},  # planned_rr deliberately omitted
+        {"h1_bias": "BULLISH", "liquidity": "Previous Day Low swept", "mss": "Bullish", "displacement": "Bullish"},
+    )
+    trades_repo.close_trade(trade_id, {"exit_price": 3730.0, "result": "WIN", "pnl": 300.0,
+                                        "r_multiple": 3.0, "duration_minutes": 45})
+
+    trade = next(t for t in patterns.closed_trades() if t["id"] == trade_id)
+    assert rules.classify_execution_alignment(trade) == StrategyAlignment.UNKNOWN

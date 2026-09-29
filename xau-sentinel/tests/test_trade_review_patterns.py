@@ -111,3 +111,30 @@ def test_build_summary_reports_insufficient_sample_note_when_below_threshold(mon
 def _df(records):
     import pandas as pd
     return pd.DataFrame(records)
+
+
+# ---------------------------------------------------------------------------
+# Stage 19 VAL-005 regression: closed_trades() must go through the REAL
+# DataFrame -> dict pipeline (temp_db + journal.trades), not a hand-built
+# fixture, since that's the only way the pandas float64 NaN-vs-None gotcha
+# actually surfaces (df.where(df.notnull(), None) silently no-ops on a
+# float64 column -- every hand-built dict fixture in this file bypasses
+# that entirely).
+# ---------------------------------------------------------------------------
+
+def test_closed_trades_reports_a_genuinely_missing_planned_rr_as_none_not_nan(temp_db):
+    import math
+    from journal import trades as trades_repo
+
+    trade_id = trades_repo.create_trade(
+        {"trade_date": "2026-01-05", "trade_time": "09:00", "symbol": "XAUUSD", "direction": "BUY",
+         "entry": 3700.0, "stop_loss": 3690.0, "take_profit": 3730.0},  # planned_rr deliberately omitted
+        {"h1_bias": "BULLISH", "liquidity": "Previous Day Low swept", "mss": "Bullish", "displacement": "Bullish"},
+    )
+    trades_repo.close_trade(trade_id, {"exit_price": 3730.0, "result": "WIN", "pnl": 300.0,
+                                        "r_multiple": 3.0, "duration_minutes": 45})
+
+    trade = next(t for t in patterns.closed_trades() if t["id"] == trade_id)
+    planned_rr = trade.get("planned_rr")
+    assert planned_rr is None
+    assert not (isinstance(planned_rr, float) and math.isnan(planned_rr))

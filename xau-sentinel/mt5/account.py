@@ -10,26 +10,18 @@ order-placing, closing, or modifying function.
 """
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-from zoneinfo import ZoneInfo
 
 import numpy as np
 
 import config
 from mt5 import connection
+from mt5.timeutil import server_now, server_timezone, to_utc
 from risk.models import AccountSnapshot
 
 try:
     import MetaTrader5 as mt5
 except ImportError:
     mt5 = None
-
-
-def server_timezone() -> ZoneInfo:
-    return ZoneInfo(config.FUNDEDNEXT_SERVER_TIMEZONE)
-
-
-def server_now() -> datetime:
-    return datetime.now(server_timezone())
 
 
 def get_account_snapshot() -> AccountSnapshot:
@@ -98,7 +90,13 @@ def get_daily_pnl_history(days: int = 10) -> Optional[List[tuple]]:
         by_day: dict = {}
         tz = server_timezone()
         for d in deals:
-            local_date = datetime.fromtimestamp(d.time, tz=timezone.utc).astimezone(tz).date()
+            # Only actual trade deals count as realized trading P/L — a
+            # deposit/withdrawal/other balance operation (DEAL_TYPE_BALANCE,
+            # credit, etc.) must never be counted as a "profitable trading
+            # day" (see docs/validation/ISSUE_LOG.md VAL-002/VAL-016).
+            if d.type not in (mt5.DEAL_TYPE_BUY, mt5.DEAL_TYPE_SELL):
+                continue
+            local_date = to_utc(d.time).astimezone(tz).date()
             by_day[local_date] = by_day.get(local_date, 0.0) + float(d.profit)
         return sorted(by_day.items())
     except Exception:  # noqa: BLE001

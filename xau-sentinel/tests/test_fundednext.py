@@ -3,7 +3,7 @@ maximum drawdown, remaining loss, warning/critical/breached thresholds,
 balance/equity changes, missing data, mock mode, live/disconnected mode,
 boundary conditions, and day-reset (timezone) behavior.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import Mock
 
 import pytest
@@ -296,3 +296,94 @@ def test_progress_to_target_reflects_equity_gain_over_initial_balance(monkeypatc
     status = compute_status(AccountType.STELLAR_2STEP, Phase.CHALLENGE)
     assert status.profit_target == 8_000.0
     assert status.progress_to_target_pct == 50.0
+
+
+# ---------------------------------------------------------------------------
+# Stage 19 VAL-002 regression: the daily-loss anchor must be derived from
+# today's realized P/L, not from "whatever balance the app first observes
+# today" — a trade closed before the app's first check on a new day must
+# not be silently absorbed into the anchor.
+# ---------------------------------------------------------------------------
+
+def test_daily_loss_anchor_accounts_for_a_loss_realized_before_the_first_check(monkeypatch):
+    """A trade closed $2000 down before the app was ever opened today must
+    still count against today's daily-loss allowance — the account's
+    CURRENT balance already reflects that loss, so the anchor must be
+    computed as balance-minus-todays-realized-pnl, not just "the balance
+    we happen to see right now"."""
+    _fixed_server_date(monkeypatch, date(2026, 1, 5))
+    # Balance already down $2000 from a trade closed earlier today.
+    _mock_snapshot(monkeypatch, balance=98_000, equity=98_000)
+    _mock_history(monkeypatch, [(date(2026, 1, 5), -2_000.0)])
+
+    status = compute_status(AccountType.STELLAR_2STEP, Phase.CHALLENGE)
+    # day_start_balance = 98000 - (-2000) = 100000 (the TRUE anchor before today's loss)
+    assert status.day_start_balance == 100_000.0
+    # daily allowance 5% of 100k = 5000; 2000 of it already used = 40%
+    assert status.daily_loss_used_pct == 40.0
+    assert status.daily_loss_remaining == 3_000.0
+
+
+def test_daily_loss_anchor_unaffected_by_a_prior_days_history(monkeypatch):
+    """Only TODAY's entry in the history should affect the anchor — a
+    loss/gain from a previous day must not leak into today's floor."""
+    _fixed_server_date(monkeypatch, date(2026, 1, 5))
+    _mock_snapshot(monkeypatch, balance=100_000, equity=100_000)
+    _mock_history(monkeypatch, [(date(2026, 1, 4), -5_000.0)])  # yesterday's loss, not today's
+
+    status = compute_status(AccountType.STELLAR_2STEP, Phase.CHALLENGE)
+    assert status.day_start_balance == 100_000.0
+    assert status.daily_loss_used_pct == 0.0
+
+
+def test_status_is_unknown_when_realized_pnl_history_is_unavailable(monkeypatch):
+    """Financial-safety-sensitive: if today's realized P/L can't be
+    determined at all, the anchor can't be trusted — fail toward an
+    explicit UNKNOWN rather than silently falling back to an
+    unverified value."""
+    _fixed_server_date(monkeypatch, date(2026, 1, 5))
+    _mock_snapshot(monkeypatch, balance=100_000, equity=100_000)
+    _mock_history(monkeypatch, None)  # a genuine fetch failure, distinct from an empty list
+
+    status = compute_status(AccountType.STELLAR_2STEP, Phase.CHALLENGE)
+    assert status.data_available is False
+    assert status.safety_level == SafetyLevel.UNKNOWN
+    assert "anchor" in status.reason.lower()
+
+
+# ---------------------------------------------------------------------------
+# Stage 19 VAL-002/VAL-016 regression: get_daily_pnl_history() must exclude
+# non-trade deals (deposits, balance adjustments) from realized P/L.
+# ---------------------------------------------------------------------------
+
+def test_get_daily_pnl_history_excludes_non_trade_deals(monkeypatch):
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(config, "IS_MOCK", False)
+
+    class FakeDeal:
+        def __init__(self, deal_type, profit, day_offset_seconds):
+            self.type = deal_type
+            self.profit = profit
+            self.time = int(datetime(2026, 1, 5, 10, 0, 0, tzinfo=timezone.utc).timestamp()) + day_offset_seconds
+
+    class FakeMT5:
+        DEAL_TYPE_BUY = 0
+        DEAL_TYPE_SELL = 1
+        DEAL_TYPE_BALANCE = 2
+
+        def history_deals_get(self, from_dt, to_dt):
+            return [
+                FakeDeal(self.DEAL_TYPE_BUY, 500.0, 0),       # a real trade close -- must count
+                FakeDeal(self.DEAL_TYPE_BALANCE, 50_000.0, 1),  # a deposit -- must NOT count
+                FakeDeal(self.DEAL_TYPE_SELL, -100.0, 2),      # a real trade close -- must count
+            ]
+
+    monkeypatch.setattr(mt5_account, "mt5", FakeMT5())
+    monkeypatch.setattr(mt5_account.connection, "is_connected", Mock(return_value=True))
+    monkeypatch.setattr(config, "FUNDEDNEXT_SERVER_TIMEZONE", "UTC")
+
+    history = mt5_account.get_daily_pnl_history(days=10)
+    assert history is not None
+    total_pnl = sum(pnl for _, pnl in history)
+    assert total_pnl == 400.0  # 500 + (-100), the 50000 "deposit" excluded entirely

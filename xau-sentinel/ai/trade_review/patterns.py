@@ -23,9 +23,20 @@ _INSUFFICIENT_SAMPLE_NOTE = "Insufficient historical sample for a meaningful rec
 
 def closed_trades() -> List[Dict[str, Any]]:
     """Public — also used directly by api/routes/trade_review.py's
-    /patterns endpoint."""
+    /patterns endpoint.
+
+    `.astype(object)` before `.where()` is required: on a float64 column,
+    `df.where(df.notnull(), None)` is a documented pandas no-op — pandas
+    re-coerces the replacement back to NaN, since a float64 array cannot
+    hold a Python None. That silently defeated every downstream `is None`
+    check on planned_rr/r_multiple/duration_minutes (see
+    docs/validation/ISSUE_LOG.md VAL-005) — a trade with no recorded
+    planned_rr fell through rules.py's `if planned_rr is None: return
+    UNKNOWN` into `NaN >= min_rr` (always False), misclassifying it as
+    NOT_ALIGNED instead of the honest UNKNOWN. Casting to object dtype
+    first lets None actually stick."""
     df = trades_repo.list_trades()
-    records = df.where(df.notnull(), None).to_dict(orient="records")
+    records = df.astype(object).where(df.notnull(), None).to_dict(orient="records")
     return [r for r in records if r.get("status") == "CLOSED"]
 
 

@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 import config
-from mt5 import connection
+from mt5 import connection, timeutil
 
 try:
     import MetaTrader5 as mt5
@@ -52,7 +52,7 @@ def get_candles(timeframe: str, count: int = 300) -> pd.DataFrame:
         raise MarketDataError(f"No candle data returned for {timeframe}")
 
     df = pd.DataFrame(rates)
-    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+    df["time"] = timeutil.series_to_utc(df["time"])
     df = df.rename(columns={"tick_volume": "volume"})
     return df[["time", "open", "high", "low", "close", "volume"]]
 
@@ -75,7 +75,7 @@ def get_price_info() -> dict:
         "bid": tick.bid,
         "ask": tick.ask,
         "spread": spread,
-        "time": datetime.fromtimestamp(tick.time, tz=timezone.utc),
+        "time": timeutil.to_utc(tick.time),
         "source": "live",
     }
 

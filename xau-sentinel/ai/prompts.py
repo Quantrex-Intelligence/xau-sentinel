@@ -135,21 +135,72 @@ SIMILARITY_SAFETY_OVERRIDE_MESSAGE = (
     "comparison against past trades, not a prediction of this trade's outcome."
 )
 
-# Deliberately narrow and literal: this exists to catch a directive-style
-# answer despite the system prompt, not to police every mention of the
-# words "buy" or "sell" (e.g. restating "Setup direction: BUY" must still
-# pass through untouched).
+# Deliberately literal, not exhaustive: this exists to catch a directive-
+# style answer despite the system prompt, not to police every mention of
+# the words "buy" or "sell" (e.g. restating "Setup direction: BUY" must
+# still pass through untouched). Broadened in Stage 19 (see
+# docs/validation/ISSUE_LOG.md VAL-001, confirmed by direct execution)
+# after the original 5-pattern set was found to miss nearly every
+# realistic paraphrase — direct instructions, imperative language,
+# indirect/softened recommendations, conditional instructions, and
+# entry/exit/stop-adjustment instructions. Regex coverage of open-ended
+# paraphrase has an inherent ceiling; this raises that ceiling
+# substantially without becoming a second AI safety subsystem.
 _ACTIONABLE_PATTERNS = [
-    re.compile(r"\bBUY\s+NOW\b", re.IGNORECASE),
-    re.compile(r"\bSELL\s+NOW\b", re.IGNORECASE),
-    re.compile(r"\b(place|execute|open)\s+(a|the|this)\s+(buy|sell)\s+(order|trade|position)\b", re.IGNORECASE),
-    re.compile(r"\byou should (buy|sell|enter|exit|close)\b", re.IGNORECASE),
-    re.compile(r"\bI (recommend|suggest) (you )?(buy|sell|enter|exit)ing?\b", re.IGNORECASE),
+    # Direct buy/sell/short/long instructions, with or without "now"/"here"/"immediately".
+    re.compile(r"\b(buy|sell|short|long)\s+(now|here|immediately|right now)\b", re.IGNORECASE),
+    re.compile(r"\b(go|enter)\s+(long|short)\b", re.IGNORECASE),
+    re.compile(r"\bshort\s+(gold|xauusd|this|it)\b", re.IGNORECASE),
+    re.compile(r"\btake\s+the\s+(long|short)\b", re.IGNORECASE),
+
+    # place/execute/open an order/trade/position — broadened to catch
+    # "open a long position" (no literal "buy"/"sell") and words between
+    # buy/sell and order/trade/position (e.g. "a buy limit order").
+    re.compile(r"\b(place|execute|open)\s+(a|the|this)\s+(buy|sell|long|short)\b", re.IGNORECASE),
+
+    # Entry/exit/close/take-profit/stop-adjustment instructions.
+    re.compile(r"\benter\s+(now|here)\b", re.IGNORECASE),
+    re.compile(r"\b(exit|close)\s+(now|your position|the trade)\b", re.IGNORECASE),
+    re.compile(r"\btake\s+profit\s+now\b", re.IGNORECASE),
+    re.compile(r"\bmove\s+your\s+stop\b", re.IGNORECASE),
+
+    # "You should ..." — broadened verb list, one optional softening adverb.
+    re.compile(
+        r"\byou should (?:really |probably |definitely |strongly )?"
+        r"(buy|sell|enter|exit|close|hold|add to|move|adjust|take)\b", re.IGNORECASE,
+    ),
+
+    # "I (would) recommend/suggest ...", "my advice/recommendation is ...".
+    re.compile(
+        r"\b(i|i'd|i would|we|my advice is|my recommendation is)\s*"
+        r"(recommend|suggest)(ing)?\s*(you\s+)?"
+        r"(buy|sell|enter|exit|go long|go short|add to|hold)ing?\b", re.IGNORECASE,
+    ),
+    re.compile(r"\bmy advice\s*[:\-]?\s*(buy|sell)\b", re.IGNORECASE),
+
+    # Softened/indirect recommendations.
+    re.compile(r"\bit would be wise to\s+(buy|sell|go long|go short|enter|exit)\b", re.IGNORECASE),
+    re.compile(r"\bconsider\s+(buying|selling|entering|exiting|going long|going short)\b", re.IGNORECASE),
+    re.compile(r"\b(favors?|supports?)\s+(buying|selling|entering|exiting|going long|going short)\b", re.IGNORECASE),
+
+    # Conditional trade instructions ("if X, buy/sell/enter/exit").
+    re.compile(r"\bif\s+.{0,80}?,\s*(buy|sell|enter|exit|go long|go short)\b", re.IGNORECASE),
 ]
+
+# Markdown emphasis characters (bold/italic/code) can defeat a
+# whitespace-based word-boundary pattern (e.g. "**Buy** now" doesn't match
+# \bBUY\s+NOW\b) without changing what the text actually says — stripped
+# once, before matching, rather than special-cased in every pattern above.
+_MARKDOWN_NOISE = re.compile(r"[*_`]+")
+
+
+def _normalize(text: str) -> str:
+    return _MARKDOWN_NOISE.sub(" ", text)
 
 
 def contains_actionable_directive(text: str) -> bool:
-    return any(p.search(text) for p in _ACTIONABLE_PATTERNS)
+    normalized = _normalize(text)
+    return any(p.search(normalized) for p in _ACTIONABLE_PATTERNS)
 
 
 # A second, independent backstop for ground rule 9 (Stage 8): even if the
@@ -159,16 +210,28 @@ def contains_actionable_directive(text: str) -> bool:
 # philosophy as _ACTIONABLE_PATTERNS above, checked unconditionally on
 # every final answer regardless of what provoked it (a malicious/injected
 # tool result, a misread memory, or the model's own reasoning).
+# Broadened in Stage 19 (see docs/validation/ISSUE_LOG.md VAL-001) to also
+# catch paraphrased future-performance claims that don't use the exact
+# words "chance"/"probability"/"will win or lose" — "tends to resolve
+# upward", "odds favor", "likely to play out well", "historically leads
+# to". Still deliberately literal, not exhaustive; see the note above
+# _ACTIONABLE_PATTERNS.
 _PREDICTIVE_PROBABILITY_PATTERNS = [
     re.compile(r"\b\d{1,3}\s*%\s*(chance|probability|likely|likelihood)\b", re.IGNORECASE),
-    re.compile(r"\bwill\s+(win|lose|succeed|fail)\b", re.IGNORECASE),
+    re.compile(r"\bwill\s+(win|lose|succeed|fail|bounce|reverse|rally|resolve)\b", re.IGNORECASE),
     re.compile(r"\b(because|since)\s+(similar|historical)\s+(trades|setups)\s+(won|lost)\b", re.IGNORECASE),
-    re.compile(r"\b(high|strong|good)\s+(probability|confidence|chance)\s+of\s+(winning|success)\b", re.IGNORECASE),
+    re.compile(r"\b(high|strong|good)\s+(probability|confidence|chance|odds)\s+of\s+(winning|success)\b", re.IGNORECASE),
+    re.compile(r"\b(tends?|expected)\s+to\s+(resolve|bounce|reverse|rally|drop|play out)\b", re.IGNORECASE),
+    re.compile(r"\bis\s+likely\s+to\s+(resolve|bounce|reverse|rally|drop|play out|win|succeed)\b", re.IGNORECASE),
+    re.compile(r"\bodds\s+favor\b", re.IGNORECASE),
+    re.compile(r"\b(strong|good|high)\s+chance\s+of\b", re.IGNORECASE),
+    re.compile(r"\bhistorically\s+(this|these|similar\s+\w+)\s+(leads?|resolves?|results?)\b", re.IGNORECASE),
 ]
 
 
 def contains_predictive_probability_claim(text: str) -> bool:
-    return any(p.search(text) for p in _PREDICTIVE_PROBABILITY_PATTERNS)
+    normalized = _normalize(text)
+    return any(p.search(normalized) for p in _PREDICTIVE_PROBABILITY_PATTERNS)
 
 
 def _render_knowledge_block(chunks: List[RetrievedChunk]) -> str:
