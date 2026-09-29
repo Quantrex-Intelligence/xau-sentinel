@@ -209,3 +209,9 @@ TELEGRAM_HTTP_TIMEOUT_SECONDS = float(os.getenv("TELEGRAM_HTTP_TIMEOUT_SECONDS",
 # "telegram" (default) or "mock" (offline, deterministic, no bot required —
 # used by tests/E2E, mirrors AI_PROVIDER's mock/real convention).
 NOTIFICATION_PROVIDER = os.getenv("NOTIFICATION_PROVIDER", "telegram").strip().lower()
+
+# --- Trade Review & Behavioral Intelligence (Stage 16) — a recurring
+# behavioral pattern is only reported across at least this many trades;
+# below it, the summary explicitly states the sample is insufficient
+# rather than inventing significance. See ai/trade_review/.
+TRADE_REVIEW_MIN_PATTERN_SAMPLE = int(os.getenv("TRADE_REVIEW_MIN_PATTERN_SAMPLE", 3))

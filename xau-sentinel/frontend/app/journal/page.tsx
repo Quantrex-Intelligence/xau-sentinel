@@ -5,6 +5,7 @@ import { Panel } from "@/components/layout/panel";
 import { NewTradeForm } from "@/components/journal/new-trade-form";
 import { TradeTable } from "@/components/journal/trade-table";
 import { TradeDetailSheet } from "@/components/journal/trade-detail-sheet";
+import { TradeReviewOverviewPanel } from "@/components/journal/trade-review-overview-panel";
 import { api } from "@/lib/api";
 import { usePolling } from "@/lib/use-polling";
 import type { Trade } from "@/lib/types";
@@ -29,6 +30,8 @@ export default function JournalPage() {
       <Panel title="Trades">
         <TradeTable trades={trades ?? []} onSelect={handleSelect} />
       </Panel>
+
+      <TradeReviewOverviewPanel />
 
       <TradeDetailSheet
         tradeId={selectedId}

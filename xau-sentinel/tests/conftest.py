@@ -118,6 +118,7 @@ def _default_thresholds(monkeypatch):
     monkeypatch.setattr(config, "TELEGRAM_RETRY_BACKOFF_SECONDS", 2.0)
     monkeypatch.setattr(config, "TELEGRAM_HTTP_TIMEOUT_SECONDS", 8.0)
     monkeypatch.setattr(config, "NOTIFICATION_PROVIDER", "mock")
+    monkeypatch.setattr(config, "TRADE_REVIEW_MIN_PATTERN_SAMPLE", 3)
 
 
 @pytest.fixture(autouse=True)

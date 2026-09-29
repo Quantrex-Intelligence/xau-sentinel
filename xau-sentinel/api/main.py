@@ -18,11 +18,12 @@ from ai.monitoring.store import init_table as init_monitoring_table
 from ai.explanations.store import init_table as init_explanations_table
 from ai.notifications import delivery as notification_delivery
 from ai.notifications.store import init_table as init_notifications_table
+from ai.trade_review.store import init_table as init_trade_review_table
 from journal.database import init_db
 from risk.fundednext_journal import init_table as init_fundednext_context_table
 from api.routes import (
     ai, alerts, explanations, fundednext, journal, knowledge, market, market_intelligence, memory,
-    monitoring, notifications, risk, settings, setup, similarity, strategy,
+    monitoring, notifications, risk, settings, setup, similarity, strategy, trade_review,
 )
 from api import ws
 
@@ -40,6 +41,7 @@ async def _lifespan(app: FastAPI):
     init_monitoring_table()
     init_notifications_table()
     init_explanations_table()
+    init_trade_review_table()
 
     task = None
     if config.MONITORING_ENABLED:
@@ -84,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(monitoring.router)
     app.include_router(notifications.router)
     app.include_router(explanations.router)
+    app.include_router(trade_review.router)
     app.include_router(ws.router)
 
     return app

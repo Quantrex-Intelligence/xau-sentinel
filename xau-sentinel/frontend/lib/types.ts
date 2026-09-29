@@ -260,6 +260,61 @@ export interface AlertExplanation {
   llm_error: string | null;
 }
 
+/** Stage 16's structured, deterministic-first post-trade review — outcome
+ * and strategy adherence are always kept independent (see
+ * ai/trade_review/models.py::TradeReview). `interpretation` is null until
+ * an explicit "Generate AI review" action (GET never calls the LLM). */
+export type StrategyAlignment = "ALIGNED" | "PARTIALLY_ALIGNED" | "NOT_ALIGNED" | "UNKNOWN";
+export type TradeOutcome = "WIN" | "LOSS" | "BREAKEVEN" | "OPEN" | "UNKNOWN";
+
+export interface TradeDeviation {
+  type: string;
+  evidence: string;
+}
+
+export interface TradeReview {
+  trade_id: number;
+  outcome: TradeOutcome;
+  strategy_alignment: StrategyAlignment;
+  setup_alignment: StrategyAlignment;
+  execution_alignment: StrategyAlignment;
+  risk_alignment: StrategyAlignment;
+  deviations: TradeDeviation[];
+  rule_observations: string[];
+  r_multiple: number | null;
+  holding_duration_minutes: number | null;
+  similar_trade_context: string;
+  behavioral_context: string[];
+  knowledge_context: string[];
+  memory_context: string[];
+  uncertainties: string[];
+  interpretation: string | null;
+  sources: string[];
+  reviewed_at: string;
+  llm_provider: string | null;
+  llm_model: string | null;
+  llm_error: string | null;
+}
+
+export interface BehavioralPattern {
+  deviation_type: string;
+  sample_count: number;
+  total_relevant_trades: number;
+  occurrence_rate: number | null;
+  trades_with_loss: number;
+  note: string;
+}
+
+export interface TradeReviewSummary {
+  trades_reviewed: number;
+  strategy_aligned: number;
+  partially_aligned: number;
+  not_aligned: number;
+  unknown: number;
+  patterns: BehavioralPattern[];
+  insufficient_sample_note: string | null;
+}
+
 export type FundedNextAccountType = "stellar_2step" | "stellar_lite";
 export type FundedNextPhase = "challenge" | "funded";
 export type SafetyLevel = "SAFE" | "WARNING" | "CRITICAL" | "BREACHED" | "UNKNOWN";

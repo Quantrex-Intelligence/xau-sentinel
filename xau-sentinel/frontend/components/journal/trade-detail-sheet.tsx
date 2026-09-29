@@ -13,7 +13,25 @@ import { FundedNextContextCard } from "./fundednext-context-card";
 import { cn } from "@/lib/utils";
 import { formatPrice } from "@/lib/format";
 import { api, ApiError } from "@/lib/api";
-import type { Trade } from "@/lib/types";
+import type { Trade, TradeReview } from "@/lib/types";
+
+const ALIGNMENT_STYLE: Record<string, string> = {
+  ALIGNED: "text-bullish bg-bullish/10",
+  PARTIALLY_ALIGNED: "text-warning bg-warning/10",
+  NOT_ALIGNED: "text-bearish bg-bearish/10",
+  UNKNOWN: "text-muted-foreground bg-muted",
+};
+
+function AlignmentBadge({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-xs py-0.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded", ALIGNMENT_STYLE[value] ?? ALIGNMENT_STYLE.UNKNOWN)}>
+        {value.replace(/_/g, " ")}
+      </span>
+    </div>
+  );
+}
 
 export function TradeDetailSheet({
   tradeId,
@@ -38,6 +56,15 @@ export function TradeDetailSheet({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Same "derive from a keyed fetch result" pattern as `trade` above — no
+  // separate synchronous reset needed when the selected trade changes.
+  const [fetchedReview, setFetchedReview] = useState<{ id: number; data: TradeReview } | null>(null);
+  const review = fetchedReview?.id === tradeId ? fetchedReview.data : null;
+  const [showReview, setShowReview] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState(false);
+  const [generatingAiReview, setGeneratingAiReview] = useState(false);
+
   useEffect(() => {
     if (tradeId === null) return;
     let cancelled = false;
@@ -46,6 +73,36 @@ export function TradeDetailSheet({
       cancelled = true;
     };
   }, [tradeId]);
+
+  async function handleToggleReview() {
+    const next = !showReview;
+    setShowReview(next);
+    if (next && trade && review === null && !reviewLoading) {
+      setReviewLoading(true);
+      setReviewError(false);
+      try {
+        const data = await api.tradeReview(trade.id);
+        setFetchedReview({ id: trade.id, data });
+      } catch {
+        setReviewError(true);
+      } finally {
+        setReviewLoading(false);
+      }
+    }
+  }
+
+  async function handleGenerateAiReview() {
+    if (!trade) return;
+    setGeneratingAiReview(true);
+    try {
+      const data = await api.generateTradeReview(trade.id);
+      setFetchedReview({ id: trade.id, data });
+    } catch {
+      // deterministic review stays displayed either way
+    } finally {
+      setGeneratingAiReview(false);
+    }
+  }
 
   async function handleClose() {
     if (!trade) return;
@@ -130,6 +187,66 @@ export function TradeDetailSheet({
                     <Field label="R Multiple" value={trade.r_multiple !== null ? trade.r_multiple.toFixed(2) : "—"} />
                     <Field label="P/L" value={trade.pnl !== null ? `$${trade.pnl.toFixed(2)}` : "—"} />
                   </div>
+
+                  <button
+                    onClick={handleToggleReview}
+                    className="text-[11px] text-muted-foreground hover:text-foreground underline mt-2"
+                  >
+                    {showReview ? "Hide review" : "Review Trade"}
+                  </button>
+
+                  {showReview && (
+                    reviewLoading ? (
+                      <p className="text-xs text-muted-foreground mt-2">Loading review…</p>
+                    ) : reviewError ? (
+                      <p className="text-xs text-muted-foreground mt-2">Review unavailable.</p>
+                    ) : review ? (
+                      <div className="mt-2 border-t border-border pt-2 text-xs space-y-2">
+                        <div>
+                          <AlignmentBadge label="Strategy alignment" value={review.strategy_alignment} />
+                          <AlignmentBadge label="Setup alignment" value={review.setup_alignment} />
+                          <AlignmentBadge label="Execution alignment" value={review.execution_alignment} />
+                          <AlignmentBadge label="Risk alignment" value={review.risk_alignment} />
+                        </div>
+
+                        {review.deviations.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Deviations</p>
+                            {review.deviations.map((d, i) => (
+                              <p key={i} className="text-foreground">
+                                <span className="font-medium">{d.type.replace(/_/g, " ")}:</span> {d.evidence}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">Rule Observations</p>
+                          {review.rule_observations.map((o, i) => (
+                            <p key={i} className="text-foreground">{o}</p>
+                          ))}
+                        </div>
+
+                        {review.interpretation ? (
+                          <div>
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-1">AI Review</p>
+                            <p className="text-foreground">{review.interpretation}</p>
+                            {review.similar_trade_context && (
+                              <p className="text-foreground mt-1">{review.similar_trade_context}</p>
+                            )}
+                          </div>
+                        ) : (
+                          <button
+                            onClick={handleGenerateAiReview}
+                            disabled={generatingAiReview}
+                            className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                          >
+                            {generatingAiReview ? "Generating…" : "Generate AI review"}
+                          </button>
+                        )}
+                      </div>
+                    ) : null
+                  )}
                 </div>
               ) : (
                 <div className="rounded border border-border p-3 space-y-2">

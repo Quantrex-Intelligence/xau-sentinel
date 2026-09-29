@@ -34,6 +34,8 @@ import type {
   Trade,
   TradeCloseInput,
   TradeCreateInput,
+  TradeReview,
+  TradeReviewSummary,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
@@ -149,4 +151,10 @@ export const api = {
   regenerateAlertExplanation: (alertId: number) =>
     request<AlertExplanation>(`/api/explanations/alert/${alertId}/generate`, { method: "POST" }),
   explainTrade: (tradeId: number) => request<AlertExplanation>(`/api/explanations/trade/${tradeId}`),
+
+  // Stage 16
+  tradeReview: (tradeId: number) => request<TradeReview>(`/api/trade-review/${tradeId}`),
+  generateTradeReview: (tradeId: number) =>
+    request<TradeReview>(`/api/trade-review/${tradeId}/generate`, { method: "POST" }),
+  tradeReviewSummary: () => request<TradeReviewSummary>("/api/trade-review/summary"),
 };
