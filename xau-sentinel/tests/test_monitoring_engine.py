@@ -6,12 +6,14 @@ baseline with zero alerts, a changed mock on the second cycle produces
 exactly the right alert, an unchanged third cycle produces zero (in-memory
 dedup), and the engine never touches an LLM provider."""
 import inspect
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from ai.monitoring import engine, store
 from risk.models import AccountType, FundedNextStatus, Phase, SafetyLevel
-from tests.conftest import flat_candles
+from tests.conftest import flat_candles, make_candles
+from tests.test_structure import BULLISH_POINTS, _ramp_path
 
 
 def _candles():
@@ -140,3 +142,52 @@ def test_engine_never_touches_an_llm_provider():
 
 def test_engine_imports_evaluate_deterministic_not_the_llm_wrapper():
     assert engine.evaluate_deterministic.__name__ == "evaluate_deterministic"
+
+
+# ---------------------------------------------------------------------------
+# Stage 21 (VAL-006): forming-candle-only movement must never produce a
+# false transition -- detect_setup()/evaluate_deterministic() (the only
+# things _build_bundle() calls) already filter to closed candles, so this
+# proves that guarantee holds at the monitoring layer too, with zero
+# changes needed to engine.py itself.
+# ---------------------------------------------------------------------------
+
+def _m5_bullish_history(extra_forming_close=None):
+    """A known-good bullish HH/HL M5 sequence (same scenario as
+    tests/test_structure.py's PULLBACK-flip test). With no
+    `extra_forming_close`, every row is CLOSED. With one given, one more
+    row is appended and made deliberately FORMING -- a close dramatic
+    enough (well below the L112 pivot) to flip M5 to PULLBACK if it were
+    (incorrectly) treated as closed."""
+    path = _ramp_path(BULLISH_POINTS[:6], steps_per_leg=7)  # last confirmed low = L112 (HL)
+    values = list(path) + [113, 114, 115]  # 3 confirming bars, stays above L112
+    if extra_forming_close is not None:
+        values = values + [extra_forming_close]
+    rows = [(v, v, v, v) for v in values]
+
+    start = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
+    if extra_forming_close is not None:
+        now = start + timedelta(minutes=5 * (len(rows) - 1))  # only the appended row is forming
+    else:
+        now = start + timedelta(minutes=5 * len(rows))  # everything closed
+    return make_candles(rows, start=start, now=now)
+
+
+def test_forming_candle_only_movement_never_produces_a_false_transition(monkeypatch):
+    other_tf_candles = {tf: flat_candles(60, price=115.0, tf_minutes=m)
+                         for tf, m in (("M15", 15), ("H1", 60), ("H4", 240))}
+
+    baseline_m5 = _m5_bullish_history()
+    monkeypatch.setattr(engine.market_data, "get_all_candles",
+                         lambda count=300: {"M5": baseline_m5, **other_tf_candles})
+    engine.run_monitoring_cycle()  # establishes the baseline snapshot
+
+    # Same closed history, plus one forming row that would flip M5 to
+    # PULLBACK (and thus change setup_direction/aplus_direction) if it
+    # leaked into structural analysis.
+    forming_m5 = _m5_bullish_history(extra_forming_close=100.0)
+    monkeypatch.setattr(engine.market_data, "get_all_candles",
+                         lambda count=300: {"M5": forming_m5, **other_tf_candles})
+    created = engine.run_monitoring_cycle()
+
+    assert created == []

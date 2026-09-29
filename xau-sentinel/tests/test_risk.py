@@ -35,17 +35,17 @@ def _trending_candles(direction, n=10):
 
 def test_plan_trade_buy_places_stop_below_entry_and_target_above():
     df = _trending_candles("BUY")
-    entry_zone, sl, tp, rr = _plan_trade(df, "BUY")
-    last_price = float(df["close"].iloc[-1])
-    assert sl < last_price < tp
+    current_price = float(df["close"].iloc[-1])
+    entry_zone, sl, tp, rr = _plan_trade(df, current_price, "BUY")
+    assert sl < current_price < tp
     assert rr > 0
 
 
 def test_plan_trade_sell_places_stop_above_entry_and_target_below():
     df = _trending_candles("SELL")
-    entry_zone, sl, tp, rr = _plan_trade(df, "SELL")
-    last_price = float(df["close"].iloc[-1])
-    assert tp < last_price < sl
+    current_price = float(df["close"].iloc[-1])
+    entry_zone, sl, tp, rr = _plan_trade(df, current_price, "SELL")
+    assert tp < current_price < sl
     assert rr > 0
 
 
@@ -55,5 +55,6 @@ def test_plan_trade_rr_is_none_when_risk_is_zero():
     rows = [(100, 100.5, 99.5, 100) for _ in range(9)]
     rows.append((100, 100, 97, 97))  # close == low == window minimum
     df = make_candles(rows)
-    entry_zone, sl, tp, rr = _plan_trade(df, "BUY")
+    current_price = float(df["close"].iloc[-1])
+    entry_zone, sl, tp, rr = _plan_trade(df, current_price, "BUY")
     assert rr is None

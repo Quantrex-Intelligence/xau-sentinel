@@ -14,7 +14,7 @@ from typing import Optional
 import pandas as pd
 
 import config
-from analysis.structure import analyze_structure, detect_displacement
+from analysis.structure import analyze_structure, closed_only, detect_displacement
 from analysis.liquidity import detect_sweeps, detect_equal_levels
 from analysis.zones import compute_zones
 
@@ -42,19 +42,27 @@ def _nearest_zone_distance(price: float, zones: dict) -> float:
 
 
 def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
-    """`candles` is a dict of timeframe -> DataFrame for M5, M15, H1, H4."""
+    """`candles` is a dict of timeframe -> DataFrame for M5, M15, H1, H4.
+
+    Structural confirmation (structure, zones, sweeps, equal levels,
+    displacement, and — below — retracement) is computed only from CLOSED
+    candles (Stage 21, VAL-006). `current_price` is the one deliberate
+    exception: current-price context (zone proximity, entry planning)
+    legitimately reads the unfiltered set's last close, which may still be
+    forming."""
     zone_proximity = zone_proximity if zone_proximity is not None else config.LIQUIDITY_SWEEP_BUFFER_PIPS * 6
 
-    h4_struct = analyze_structure(candles["H4"])
-    h1 = analyze_structure(candles["H1"])
-    m15 = analyze_structure(candles["M15"])
-    m5 = analyze_structure(candles["M5"])
-    zones = compute_zones(candles["M5"], candles["H1"], candles["H4"])
+    closed = closed_only(candles)
+    h4_struct = analyze_structure(closed["H4"])
+    h1 = analyze_structure(closed["H1"])
+    m15 = analyze_structure(closed["M15"])
+    m5 = analyze_structure(closed["M5"])
+    zones = compute_zones(closed["M5"], closed["H1"], closed["H4"])
 
-    last_price = float(candles["M5"]["close"].iloc[-1])
-    sweeps = detect_sweeps(candles["M5"], zones)
-    equal_levels = detect_equal_levels(candles["M5"])
-    displacement = detect_displacement(candles["M5"])
+    current_price = float(candles["M5"]["close"].iloc[-1])
+    sweeps = detect_sweeps(closed["M5"], zones)
+    equal_levels = detect_equal_levels(closed["M5"])
+    displacement = detect_displacement(closed["M5"])
 
     context = {
         "h4_bias": h4_struct.state,
@@ -80,7 +88,7 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
         return SetupResult(state="NO SETUP", checklist={s: "WAITING" for s in CHECKLIST_STEPS},
                             reason="No clear H1 directional bias yet.", context=context)
 
-    near_zone = _nearest_zone_distance(last_price, zones) <= zone_proximity
+    near_zone = _nearest_zone_distance(current_price, zones) <= zone_proximity
 
     relevant_sweep = next(
         (s for s in reversed(sweeps)
@@ -126,10 +134,10 @@ def detect_setup(candles: dict, zone_proximity: float = None) -> SetupResult:
                             context=context)
 
     if checklist["Liquidity Sweep"] and checklist["MSS"] and checklist["Displacement"]:
-        retracement_ok = _check_retracement(candles["M5"], direction)
+        retracement_ok = _check_retracement(closed["M5"], direction)
         checklist["Retracement"] = retracement_ok
         if retracement_ok:
-            entry_zone, sl, tp, rr = _plan_trade(candles["M5"], direction)
+            entry_zone, sl, tp, rr = _plan_trade(closed["M5"], current_price, direction)
             if rr is not None:
                 return SetupResult(state="VALID", direction=direction, checklist=checklist,
                                     entry_zone=entry_zone, stop_loss=sl, take_profit=tp, rr=rr,
@@ -163,20 +171,22 @@ def _check_retracement(df: pd.DataFrame, direction: str, lookback: int = 10) -> 
     return config.RETRACEMENT_MIN_PCT <= retrace_pct <= config.RETRACEMENT_MAX_PCT
 
 
-def _plan_trade(df: pd.DataFrame, direction: str, lookback: int = 10):
-    recent = df.tail(lookback)
-    last_price = float(df["close"].iloc[-1])
+def _plan_trade(closed_df: pd.DataFrame, current_price: float, direction: str, lookback: int = 10):
+    """`closed_df` (CLOSED candles only) supplies the SL/TP range;
+    `current_price` (the live/forming-inclusive close, explicitly passed
+    in by the caller — Stage 21, VAL-006) is the entry reference."""
+    recent = closed_df.tail(lookback)
 
     if direction == "BUY":
         sl = float(recent["low"].min())
-        risk = last_price - sl
-        entry_zone = (round(last_price - risk * 0.15, 2), round(last_price + risk * 0.05, 2))
-        tp = round(last_price + risk * 2.4, 2)
+        risk = current_price - sl
+        entry_zone = (round(current_price - risk * 0.15, 2), round(current_price + risk * 0.05, 2))
+        tp = round(current_price + risk * 2.4, 2)
     else:
         sl = float(recent["high"].max())
-        risk = sl - last_price
-        entry_zone = (round(last_price - risk * 0.05, 2), round(last_price + risk * 0.15, 2))
-        tp = round(last_price - risk * 2.4, 2)
+        risk = sl - current_price
+        entry_zone = (round(current_price - risk * 0.05, 2), round(current_price + risk * 0.15, 2))
+        tp = round(current_price - risk * 2.4, 2)
 
-    rr = round(abs(tp - last_price) / risk, 2) if risk > 0 else None
+    rr = round(abs(tp - current_price) / risk, 2) if risk > 0 else None
     return entry_zone, round(sl, 2), tp, rr

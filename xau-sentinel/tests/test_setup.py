@@ -6,6 +6,7 @@ transition can be tested in isolation, independent of whether the
 lower-level analysis functions themselves are correct (those have their own
 dedicated test files).
 """
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
 import pytest
@@ -281,3 +282,68 @@ def test_sell_setup_invalidated_on_bullish_m5_reversal_after_sweep(monkeypatch):
     result = setup_mod.detect_setup(_dummy_candles())
     assert result.state == "INVALIDATED"
     assert result.direction == "SELL"
+
+
+# ---------------------------------------------------------------------------
+# Stage 21 (VAL-006): forming-candle exclusion in detect_setup() itself.
+# ---------------------------------------------------------------------------
+
+def _candles_with_one_forming_row(closed_rows, forming_row):
+    """Builds an M5 DataFrame where every row in `closed_rows` is CLOSED
+    and exactly one more `forming_row` at the end is still FORMING,
+    relative to an explicit, controlled `now` -- never real wall-clock
+    timing (see tests/conftest.py::make_candles' `now` param, added in
+    Stage 21)."""
+    rows = list(closed_rows) + [forming_row]
+    start = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
+    now = start + timedelta(minutes=5 * (len(rows) - 1))  # exactly the last row is forming
+    return make_candles(rows, start=start, now=now)
+
+
+def test_detect_setup_passes_closed_only_candles_to_sweep_and_displacement_checks(monkeypatch):
+    """Sweep and displacement confirmation must never see the forming
+    candle -- verified by capturing exactly what DataFrame each function
+    actually received."""
+    closed_rows = [(100 + i * 0.1, 100.3 + i * 0.1, 99.7 + i * 0.1, 100.1 + i * 0.1) for i in range(14)]
+    forming_row = (200.0, 210.0, 190.0, 205.0)  # wildly different -- easy to detect if it leaked through
+    m5_df = _candles_with_one_forming_row(closed_rows, forming_row)
+
+    _patch_structure(monkeypatch, _sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("RANGING"))
+    sweeps_mock = Mock(return_value=[])
+    displacement_mock = Mock(return_value=None)
+    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={}))
+    monkeypatch.setattr(setup_mod, "detect_sweeps", sweeps_mock)
+    monkeypatch.setattr(setup_mod, "detect_displacement", displacement_mock)
+
+    other_df = make_candles([(100, 100.3, 99.7, 100.1)] * 20)
+    setup_mod.detect_setup({"H4": other_df, "H1": other_df, "M15": other_df, "M5": m5_df})
+
+    sweeps_call_df = sweeps_mock.call_args[0][0]
+    displacement_call_df = displacement_mock.call_args[0][0]
+    assert len(sweeps_call_df) == len(closed_rows)
+    assert len(displacement_call_df) == len(closed_rows)
+    assert 200.0 not in sweeps_call_df["open"].values
+    assert 200.0 not in displacement_call_df["open"].values
+
+
+def test_detect_setup_zone_proximity_still_reflects_the_forming_candles_current_price(monkeypatch):
+    """The legitimate exception (Stage 21): current-price context (zone
+    proximity for the Liquidity Sweep checklist item) must still reflect
+    the forming candle's close, not lag behind it."""
+    closed_rows = [(100 + i * 0.1, 100.3 + i * 0.1, 99.7 + i * 0.1, 100.1 + i * 0.1) for i in range(14)]
+    forming_row = (204.0, 206.0, 203.0, 205.0)  # current price ~205, far from the closed rows' ~101
+    m5_df = _candles_with_one_forming_row(closed_rows, forming_row)
+
+    _patch_structure(monkeypatch, _sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("RANGING"))
+    # A zone sitting exactly at the FORMING candle's current price -- only
+    # "near" if current_price correctly reads 205, not the closed set's ~101.4.
+    monkeypatch.setattr(setup_mod, "compute_zones", Mock(return_value={"H1 Swing Low": 205.0}))
+    sweep = LiquidityEvent(time=None, label="H1 Swing Low swept", level_name="H1 Swing Low",
+                            level_price=205.0, kind="sweep_low")
+    monkeypatch.setattr(setup_mod, "detect_sweeps", Mock(return_value=[sweep]))
+    monkeypatch.setattr(setup_mod, "detect_displacement", Mock(return_value=None))
+
+    other_df = make_candles([(100, 100.3, 99.7, 100.1)] * 20)
+    result = setup_mod.detect_setup({"H4": other_df, "H1": other_df, "M15": other_df, "M5": m5_df})
+
+    assert result.checklist["Liquidity Sweep"] is True

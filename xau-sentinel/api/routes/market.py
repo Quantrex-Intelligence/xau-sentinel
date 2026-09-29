@@ -4,7 +4,7 @@ aggregate used by /analysis and the WS stream."""
 from fastapi import APIRouter, HTTPException, Query
 
 from mt5 import market_data
-from analysis.structure import analyze_structure
+from analysis.structure import analyze_structure, closed_only
 from analysis.zones import compute_zones
 from analysis.liquidity import detect_sweeps, detect_equal_levels
 from analysis.regime import classify_regime
@@ -48,7 +48,8 @@ def get_structure():
         candles = market_data.get_all_candles(300)
     except market_data.MarketDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
-    return {tf: _structure_out(analyze_structure(candles[tf])) for tf in market_data.TIMEFRAMES}
+    closed = closed_only(candles)  # structural analysis never sees a forming candle (Stage 21, VAL-006)
+    return {tf: _structure_out(analyze_structure(closed[tf])) for tf in market_data.TIMEFRAMES}
 
 
 @router.get("/zones", response_model=dict[str, float])
@@ -57,7 +58,8 @@ def get_zones():
         candles = market_data.get_all_candles(300)
     except market_data.MarketDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
-    return compute_zones(candles["M5"], candles["H1"], candles["H4"])
+    closed = closed_only(candles)
+    return compute_zones(closed["M5"], closed["H1"], closed["H4"])
 
 
 @router.get("/liquidity", response_model=LiquidityOut)
@@ -66,10 +68,11 @@ def get_liquidity():
         candles = market_data.get_all_candles(300)
     except market_data.MarketDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
-    zones = compute_zones(candles["M5"], candles["H1"], candles["H4"])
+    closed = closed_only(candles)
+    zones = compute_zones(closed["M5"], closed["H1"], closed["H4"])
     return LiquidityOut(
-        sweeps=[_liquidity_event_out(s) for s in detect_sweeps(candles["M5"], zones)],
-        equal_levels=[_liquidity_event_out(e) for e in detect_equal_levels(candles["M5"])],
+        sweeps=[_liquidity_event_out(s) for s in detect_sweeps(closed["M5"], zones)],
+        equal_levels=[_liquidity_event_out(e) for e in detect_equal_levels(closed["M5"])],
     )
 
 
@@ -79,7 +82,8 @@ def get_regime():
         candles = market_data.get_all_candles(300)
     except market_data.MarketDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
-    result = classify_regime(candles["H1"], candles["M15"])
+    closed = closed_only(candles)
+    result = classify_regime(closed["H1"], closed["M15"])
     return RegimeOut(regime=result.regime, reason=result.reason)
 
 

@@ -32,7 +32,7 @@ from typing import List, Optional
 
 import config
 from analysis.setup import _check_retracement
-from analysis.structure import analyze_structure, detect_displacement
+from analysis.structure import analyze_structure, closed_only, detect_displacement
 from analysis.liquidity import detect_equal_levels, detect_sweeps
 from analysis.zones import compute_zones
 from mt5 import market_data
@@ -106,15 +106,19 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
     tested with synthetic candles exactly like tests/test_setup.py does."""
     now = now or datetime.now(timezone.utc)
 
-    h4 = analyze_structure(candles["H4"])
-    h1 = analyze_structure(candles["H1"])
-    m15 = analyze_structure(candles["M15"])
-    m5 = analyze_structure(candles["M5"])
-    zones = compute_zones(candles["M5"], candles["H1"], candles["H4"])
-    sweeps = detect_sweeps(candles["M5"], zones)
-    equal_levels = detect_equal_levels(candles["M5"])
-    displacement = detect_displacement(candles["M5"])
-    last_price = float(candles["M5"]["close"].iloc[-1])
+    # Structural confirmation reads only CLOSED candles (Stage 21,
+    # VAL-006); current_price is the one deliberate exception, reading
+    # the unfiltered set's last close for entry-price context.
+    closed = closed_only(candles)
+    h4 = analyze_structure(closed["H4"])
+    h1 = analyze_structure(closed["H1"])
+    m15 = analyze_structure(closed["M15"])
+    m5 = analyze_structure(closed["M5"])
+    zones = compute_zones(closed["M5"], closed["H1"], closed["H4"])
+    sweeps = detect_sweeps(closed["M5"], zones)
+    equal_levels = detect_equal_levels(closed["M5"])
+    displacement = detect_displacement(closed["M5"])
+    current_price = float(candles["M5"]["close"].iloc[-1])
 
     fn_gate_ok, fn_reason = rules.check_fundednext_gate(fundednext_status)
     fundednext_out = _fundednext_gate_out(fundednext_status, fn_gate_ok, fn_reason)
@@ -168,9 +172,9 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
     h1_ok = rules.h1_supports_direction(direction, h1.state, h1.last_mss)
     mss_ok = rules.is_m5_mss_confirmed(direction, m5.last_mss)
     displacement_ok = rules.is_displacement_confirmed(direction, displacement)
-    retracement_ok = _check_retracement(candles["M5"], direction)
+    retracement_ok = _check_retracement(closed["M5"], direction)
 
-    entry = round(last_price, 2)
+    entry = round(current_price, 2)
     stop_loss = rules.compute_stop_loss(direction, candidate.level_price)
     target = rules.select_target(direction, zones, entry)
     rr, _risk, _reward = rules.compute_risk_reward(direction, entry, stop_loss, target)

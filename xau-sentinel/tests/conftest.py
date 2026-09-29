@@ -7,12 +7,23 @@ import pytest
 import config
 
 
-def make_candles(rows, tf_minutes=5, start=None):
+def make_candles(rows, tf_minutes=5, start=None, now=None):
     """Builds a deterministic OHLCV DataFrame from a list of
     (open, high, low, close) or (open, high, low, close, volume) tuples,
-    oldest first, matching the [time, open, high, low, close, volume] shape
-    that mt5.market_data.get_candles returns."""
+    oldest first, matching the [time, open, high, low, close, volume,
+    close_time, is_closed] shape that mt5.market_data.get_candles returns
+    (close_time/is_closed added in Stage 21, VAL-006).
+
+    `now` (default: real wall clock) is the authoritative current time
+    used to compute is_closed -- every existing caller's fixtures are
+    anchored at the fixed default `start` (2026-01-05, in the real past),
+    so they come back fully closed either way. Pass an explicit `now` to
+    deliberately construct a forming (not-yet-closed) last candle for a
+    Stage 21 regression test, matching whatever `now` the surrounding
+    test also passes to evaluate_deterministic()/detect_setup() -- see
+    tests/test_setup.py and tests/test_strategy_evaluator.py."""
     start = start or datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)  # a Monday
+    now = now or datetime.now(timezone.utc)
     times = [start + timedelta(minutes=tf_minutes * i) for i in range(len(rows))]
 
     opens, highs, lows, closes, volumes = [], [], [], [], []
@@ -28,17 +39,21 @@ def make_candles(rows, tf_minutes=5, start=None):
         closes.append(c)
         volumes.append(v)
 
+    time_col = pd.to_datetime(times, utc=True)
+    close_time_col = time_col + pd.Timedelta(minutes=tf_minutes)
     return pd.DataFrame({
-        "time": pd.to_datetime(times, utc=True),
+        "time": time_col,
         "open": opens,
         "high": highs,
         "low": lows,
         "close": closes,
         "volume": volumes,
+        "close_time": close_time_col,
+        "is_closed": close_time_col <= now,
     })
 
 
-def flat_candles(n, price=100.0, tf_minutes=5, start=None, noise=0.05):
+def flat_candles(n, price=100.0, tf_minutes=5, start=None, noise=0.05, now=None):
     """n small-bodied candles oscillating narrowly around `price` — a
     deterministic stand-in for a quiet/ranging market."""
     rows = []
@@ -49,7 +64,7 @@ def flat_candles(n, price=100.0, tf_minutes=5, start=None, noise=0.05):
         h = max(o, c) + noise
         l = min(o, c) - noise
         rows.append((o, h, l, c))
-    return make_candles(rows, tf_minutes=tf_minutes, start=start)
+    return make_candles(rows, tf_minutes=tf_minutes, start=start, now=now)
 
 
 @pytest.fixture(autouse=True)

@@ -14,7 +14,7 @@ import pandas as pd
 
 import config
 from mt5 import connection, market_data
-from analysis.structure import analyze_structure, detect_displacement
+from analysis.structure import analyze_structure, closed_only, detect_displacement
 from analysis.regime import classify_regime
 from analysis.zones import compute_zones, current_session
 from analysis.liquidity import detect_sweeps, detect_equal_levels
@@ -96,12 +96,16 @@ def build_snapshot() -> MarketSnapshotOut:
         source=price_info["source"], stale=is_stale,
     )
 
-    structures = {tf: analyze_structure(candles[tf]) for tf in market_data.TIMEFRAMES}
-    regime = classify_regime(candles["H1"], candles["M15"])
-    zones = compute_zones(candles["M5"], candles["H1"], candles["H4"])
-    sweeps = detect_sweeps(candles["M5"], zones)
-    equal_levels = detect_equal_levels(candles["M5"])
-    displacement = detect_displacement(candles["M5"])
+    # Structural analysis reads only CLOSED candles (Stage 21, VAL-006);
+    # detect_setup() keeps receiving the full `candles` dict below since it
+    # does its own internal closed/current-price split.
+    closed = closed_only(candles)
+    structures = {tf: analyze_structure(closed[tf]) for tf in market_data.TIMEFRAMES}
+    regime = classify_regime(closed["H1"], closed["M15"])
+    zones = compute_zones(closed["M5"], closed["H1"], closed["H4"])
+    sweeps = detect_sweeps(closed["M5"], zones)
+    equal_levels = detect_equal_levels(closed["M5"])
+    displacement = detect_displacement(closed["M5"])
     setup_result = detect_setup(candles)
 
     now_utc = datetime.now(timezone.utc)

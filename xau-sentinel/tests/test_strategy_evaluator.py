@@ -332,3 +332,58 @@ def test_llm_cannot_turn_a_failed_setup_into_a_plus_via_directive(monkeypatch):
 
     assert enriched.rating == Rating.DEVELOPING  # never overridden
     assert "BUY NOW" not in enriched.llm_explanation
+
+
+# ---------------------------------------------------------------------------
+# Stage 21 (VAL-006): forming-candle exclusion inside evaluate_deterministic().
+# ---------------------------------------------------------------------------
+
+def _m5_with_one_forming_row(closed_rows, forming_row):
+    rows = list(closed_rows) + [forming_row]
+    start = NOW - timedelta(minutes=5 * (len(rows) - 1))  # exactly the last row is forming, relative to NOW
+    return make_candles(rows, start=start, now=NOW)
+
+
+def test_evaluate_deterministic_passes_closed_only_candles_to_sweep_and_displacement_checks(monkeypatch):
+    """MSS/sweep/displacement/retracement confirmation must never see the
+    forming candle -- verified by capturing exactly what DataFrame each
+    function actually received."""
+    closed_rows = [(100 + i * 0.1, 100.3 + i * 0.1, 99.7 + i * 0.1, 100.1 + i * 0.1) for i in range(14)]
+    forming_row = (200.0, 210.0, 190.0, 205.0)  # wildly different -- easy to detect if it leaked through
+    m5_df = _m5_with_one_forming_row(closed_rows, forming_row)
+    other_df = _candles()["H4"]
+
+    monkeypatch.setattr(evaluator_mod, "analyze_structure",
+                         Mock(side_effect=[_sr("BULLISH"), _sr("BULLISH"), _sr("BULLISH"), _sr("RANGING")]))
+    sweeps_mock = Mock(return_value=[])
+    displacement_mock = Mock(return_value=None)
+    monkeypatch.setattr(evaluator_mod, "compute_zones", Mock(return_value={}))
+    monkeypatch.setattr(evaluator_mod, "detect_sweeps", sweeps_mock)
+    monkeypatch.setattr(evaluator_mod, "detect_equal_levels", Mock(return_value=[]))
+    monkeypatch.setattr(evaluator_mod, "detect_displacement", displacement_mock)
+
+    candles = {"H4": other_df, "H1": other_df, "M15": other_df, "M5": m5_df}
+    evaluator_mod.evaluate_deterministic(candles, _safe_status(), now=NOW)
+
+    sweeps_call_df = sweeps_mock.call_args[0][0]
+    displacement_call_df = displacement_mock.call_args[0][0]
+    assert len(sweeps_call_df) == len(closed_rows)
+    assert len(displacement_call_df) == len(closed_rows)
+    assert 200.0 not in sweeps_call_df["open"].values
+    assert 200.0 not in displacement_call_df["open"].values
+
+
+def test_evaluate_deterministic_entry_price_reflects_the_forming_candles_current_close(monkeypatch):
+    """The legitimate exception (Stage 21): `entry` must still reflect the
+    forming candle's close, not lag behind it -- current-price context is
+    never filtered."""
+    closed_rows = [(100 + i * 0.1, 100.3 + i * 0.1, 99.7 + i * 0.1, 100.1 + i * 0.1) for i in range(14)]
+    forming_row = (204.0, 206.0, 203.0, 205.0)
+    m5_df = _m5_with_one_forming_row(closed_rows, forming_row)
+    other_df = _candles()["H4"]
+
+    _full_buy_setup(monkeypatch)
+    candles = {"H4": other_df, "H1": other_df, "M15": other_df, "M5": m5_df}
+    result = evaluator_mod.evaluate_deterministic(candles, _safe_status(), now=NOW)
+
+    assert result.entry == 205.0

@@ -30,6 +30,17 @@ class StructureResult:
     reason: str = ""
 
 
+def closed_only(candles: dict) -> dict:
+    """Filters each timeframe's candles down to CLOSED bars only, using
+    the is_closed column mt5/market_data.py attaches (Stage 21, VAL-006 —
+    see docs/validation/ISSUE_LOG.md). Structural analysis (swings,
+    MSS/BOS, sweeps, displacement, retracement, zones) must never see a
+    still-forming candle; an explicit "current price" read (entry
+    planning, live display, charting) is exempt and reads the original,
+    unfiltered dict directly instead of calling this."""
+    return {tf: df[df["is_closed"]].reset_index(drop=True) for tf, df in candles.items()}
+
+
 def find_swing_points(df: pd.DataFrame, lookback: int = None) -> List[SwingPoint]:
     """A bar is a swing high/low if it is the strict extreme within `lookback`
     bars on both sides. Simple and deterministic, no repainting once a bar's

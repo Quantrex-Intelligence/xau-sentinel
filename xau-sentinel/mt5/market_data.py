@@ -6,6 +6,7 @@ MODE=mock  -> generates deterministic synthetic data so the app is fully
               callers get it back tagged with source="mock".
 """
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -35,8 +36,26 @@ class MarketDataError(Exception):
     disconnected state rather than let this propagate into a crash."""
 
 
+def _with_candle_state(df: pd.DataFrame, timeframe: str, now: Optional[datetime] = None) -> pd.DataFrame:
+    """Adds close_time (this candle's open `time` + the timeframe's own
+    duration) and is_closed (close_time <= the authoritative current
+    time, boundary inclusive) columns. A candle's state is always derived
+    from its own timestamp against `now` -- never assumed from row
+    position or count (see docs/validation/ISSUE_LOG.md VAL-006).
+    Structural analysis must filter to is_closed candles (see
+    analysis.structure.closed_only()); "current price" reads (entry
+    planning, live display, charting) may use the full, unfiltered set."""
+    now = now or datetime.now(timezone.utc)
+    minutes = _TIMEFRAME_MINUTES[timeframe]
+    df = df.copy()
+    df["close_time"] = df["time"] + pd.Timedelta(minutes=minutes)
+    df["is_closed"] = df["close_time"] <= now
+    return df
+
+
 def get_candles(timeframe: str, count: int = 300) -> pd.DataFrame:
-    """Returns columns [time, open, high, low, close, volume], oldest first, time in UTC."""
+    """Returns columns [time, open, high, low, close, volume, close_time,
+    is_closed], oldest first, all times in UTC."""
     if timeframe not in _TIMEFRAME_MINUTES:
         raise ValueError(f"Unsupported timeframe: {timeframe}")
 
@@ -54,7 +73,8 @@ def get_candles(timeframe: str, count: int = 300) -> pd.DataFrame:
     df = pd.DataFrame(rates)
     df["time"] = timeutil.series_to_utc(df["time"])
     df = df.rename(columns={"tick_volume": "volume"})
-    return df[["time", "open", "high", "low", "close", "volume"]]
+    df = _with_candle_state(df, timeframe)
+    return df[["time", "open", "high", "low", "close", "volume", "close_time", "is_closed"]]
 
 
 def get_price_info() -> dict:
@@ -141,7 +161,11 @@ def _mock_candles(timeframe: str, count: int) -> pd.DataFrame:
         "close": closes,
         "volume": volumes,
     })
-    return df
+    # Same `now` already used for bar alignment above -- the mock series
+    # stays a fully deterministic function of that one timestamp. The last
+    # row's close_time is always aligned-bar-start + one full duration,
+    # strictly after `now`, so it is always (correctly) forming.
+    return _with_candle_state(df, timeframe, now=now)
 
 
 def _mock_price_info() -> dict:

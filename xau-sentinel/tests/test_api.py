@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 import config
 from mt5 import market_data
-from analysis.structure import analyze_structure
+from analysis.structure import analyze_structure, closed_only
 from analysis.zones import compute_zones
 from analysis.regime import classify_regime
 from analysis.setup import detect_setup
@@ -58,9 +58,11 @@ def test_structure_endpoint_matches_analyze_structure(api_client):
     resp = api_client.get("/api/market/structure")
     assert resp.status_code == 200
     body = resp.json()
-    candles = market_data.get_all_candles(300)
+    # Structural analysis reads only CLOSED candles (Stage 21, VAL-006) --
+    # the route's own comparison must match on the same closed-only set.
+    closed = closed_only(market_data.get_all_candles(300))
     for tf in market_data.TIMEFRAMES:
-        direct = analyze_structure(candles[tf])
+        direct = analyze_structure(closed[tf])
         assert body[tf]["state"] == direct.state
         assert body[tf]["reason"] == direct.reason
 
@@ -68,16 +70,16 @@ def test_structure_endpoint_matches_analyze_structure(api_client):
 def test_zones_endpoint_matches_compute_zones(api_client):
     resp = api_client.get("/api/market/zones")
     assert resp.status_code == 200
-    candles = market_data.get_all_candles(300)
-    direct = compute_zones(candles["M5"], candles["H1"], candles["H4"])
+    closed = closed_only(market_data.get_all_candles(300))
+    direct = compute_zones(closed["M5"], closed["H1"], closed["H4"])
     assert resp.json() == direct
 
 
 def test_regime_endpoint_matches_classify_regime(api_client):
     resp = api_client.get("/api/market/regime")
     assert resp.status_code == 200
-    candles = market_data.get_all_candles(300)
-    direct = classify_regime(candles["H1"], candles["M15"])
+    closed = closed_only(market_data.get_all_candles(300))
+    direct = classify_regime(closed["H1"], closed["M15"])
     assert resp.json()["regime"] == direct.regime
 
 

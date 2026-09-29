@@ -1,9 +1,11 @@
 """Market structure validation: swing detection, HH/HL/LH/LL, trend
 classification, BOS, MSS, displacement, and look-ahead bias."""
+from datetime import datetime, timedelta, timezone
+
 import pandas as pd
 
 import config
-from analysis.structure import analyze_structure, compute_atr, detect_displacement, find_swing_points
+from analysis.structure import analyze_structure, closed_only, compute_atr, detect_displacement, find_swing_points
 from tests.conftest import make_candles
 
 
@@ -107,6 +109,36 @@ def test_bullish_structure_breaking_prior_hl_becomes_pullback_not_forced_bearish
     assert result.state == "PULLBACK"
     assert result.last_mss == "bearish"
     assert result.state not in ("BULLISH", "BEARISH")
+
+
+# ---------------------------------------------------------------------------
+# Stage 21 (VAL-006): a still-FORMING candle must never be treated as
+# confirmed structure -- reuses the exact scenario above, but makes only
+# the final, structure-flipping candle a forming one.
+# ---------------------------------------------------------------------------
+
+def test_structure_ignores_a_forming_candle_that_would_otherwise_trigger_pullback():
+    path = _ramp_path(BULLISH_POINTS[:6], steps_per_leg=7)  # last confirmed low = L112 (HL)
+    closed_tail = [113, 114, 115]  # 3 confirming bars, stays above L112 -> BULLISH once closed
+    forming_close = 100  # would trigger the bearish-MSS/PULLBACK branch if treated as closed
+
+    values = list(path) + closed_tail + [forming_close]
+    rows = [(v, v, v, v) for v in values]
+    start = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
+    now = start + timedelta(minutes=5 * (len(rows) - 1))  # exactly the last row is still forming
+    df = make_candles(rows, start=start, now=now)
+
+    # Sanity: if the forming candle WERE (incorrectly) treated as closed,
+    # this scenario really would trigger PULLBACK -- proving the test is
+    # actually meaningful, not a no-op.
+    unfiltered_result = analyze_structure(df)
+    assert unfiltered_result.state == "PULLBACK"
+    assert unfiltered_result.last_mss == "bearish"
+
+    # The fix: filtering to CLOSED candles first must ignore the forming bar.
+    closed_result = analyze_structure(closed_only({"H1": df})["H1"])
+    assert closed_result.state == "BULLISH"
+    assert closed_result.last_mss is None
 
 
 def test_bearish_structure_breaking_prior_lh_becomes_pullback():

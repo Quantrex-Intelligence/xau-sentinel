@@ -9,7 +9,7 @@ import streamlit as st
 
 import config
 from mt5 import connection, market_data
-from analysis.structure import analyze_structure, detect_displacement
+from analysis.structure import analyze_structure, closed_only, detect_displacement
 from analysis.regime import classify_regime
 from analysis.zones import compute_zones, current_session
 from analysis.liquidity import detect_sweeps, detect_equal_levels
@@ -118,12 +118,16 @@ context_snapshot = {}
 if data_error:
     st.error(f"Market data unavailable: {data_error}. Check your MT5 terminal/login, or switch MODE=mock.")
 else:
-    structures = {tf: analyze_structure(candles[tf]) for tf in market_data.TIMEFRAMES}
-    regime = classify_regime(candles["H1"], candles["M15"])
-    zones = compute_zones(candles["M5"], candles["H1"], candles["H4"])
-    sweeps = detect_sweeps(candles["M5"], zones)
-    equal_levels = detect_equal_levels(candles["M5"])
-    displacement = detect_displacement(candles["M5"])
+    # Structural analysis reads only CLOSED candles (Stage 21, VAL-006);
+    # detect_setup() keeps receiving the full `candles` dict below since it
+    # does its own internal closed/current-price split.
+    closed = closed_only(candles)
+    structures = {tf: analyze_structure(closed[tf]) for tf in market_data.TIMEFRAMES}
+    regime = classify_regime(closed["H1"], closed["M15"])
+    zones = compute_zones(closed["M5"], closed["H1"], closed["H4"])
+    sweeps = detect_sweeps(closed["M5"], zones)
+    equal_levels = detect_equal_levels(closed["M5"])
+    displacement = detect_displacement(closed["M5"])
     setup_result = detect_setup(candles)
 
     _log_new_events(setup_result, sweeps, equal_levels, structures["M5"], displacement)

@@ -10,7 +10,8 @@ def test_mock_mode_never_touches_mt5_and_is_labeled_mock(monkeypatch):
 
     df = market_data.get_candles("M5", count=50)
     assert len(df) == 50
-    assert list(df.columns) == ["time", "open", "high", "low", "close", "volume"]
+    # close_time/is_closed added in Stage 21 (VAL-006).
+    assert list(df.columns) == ["time", "open", "high", "low", "close", "volume", "close_time", "is_closed"]
 
     price_info = market_data.get_price_info()
     assert price_info["source"] == "mock"

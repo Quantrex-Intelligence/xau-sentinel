@@ -94,9 +94,56 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
 - **Potential fix:** `df.astype(object).where(df.notnull(), None)` (cast to `object` dtype before `.where()`, which does allow `None`), or check `pd.isna(value)` instead of `value is None` at every consumer.
 
 ### VAL-006 — The live (forming) candle is read as if it were closed everywhere
+- **Status: Resolved in Stage 21** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `mt5/market_data.py:50` (`copy_rates_from_pos(..., 0, count)` never drops position 0, the still-forming bar) → `analysis/structure.py` (MSS/BOS at `.iloc[-1]`, swing confirmation window can include the forming bar), `analysis/structure.py` displacement, `analysis/liquidity.py` sweeps, `analysis/setup.py` retracement/entry.
 - **Actual:** An MSS, a displacement candle, a liquidity sweep resolution, and a retracement/entry can all be computed from a bar that hasn't closed yet, then silently change or vanish once it does. A VALID/A+ result can appear and disappear within a single bar.
-- **Potential fix:** Drop the forming bar (fetch from position 1, or trim the last row when its close time is in the future) before any structural computation.
+- **Root cause (confirmed in Stage 21, traced through every consumer, not assumed to be one
+  file):** `mt5/market_data.py::get_candles()`'s live branch never marked or dropped the still-forming bar
+  at position 0, and mock mode's `_mock_candles()` always generates its own last row as the current,
+  still-open bar by construction. The bug reached **six independent call sites** that each call
+  `analyze_structure()`/`compute_zones()`/`detect_sweeps()`/`detect_equal_levels()`/`detect_displacement()`/
+  `classify_regime()` directly on the raw, unfiltered candle dict: `analysis/setup.py::detect_setup()`,
+  `ai/strategy/evaluator.py::evaluate_deterministic()`, `api/snapshot.py::build_snapshot()`, three of
+  `api/routes/market.py`'s four handlers (`/structure`, `/zones`, `/liquidity`, `/regime`), and `app.py` (the
+  legacy Streamlit UI, still present, mirrors `build_snapshot()`'s wiring exactly). `ai/monitoring/engine.py`
+  had no bug of its own — it only ever calls `detect_setup()`/`evaluate_deterministic()`.
+- **Affected code path:** every structural read in the deterministic engine — swing/HH-HL-LH-LL labeling,
+  MSS, BOS, liquidity sweep confirmation, displacement confirmation, retracement, and all zone
+  computation (Previous Day/session highs-lows, VWAP, H1/H4 Swing High/Low) — for every timeframe (M5,
+  M15, H1, H4), through every one of the six call sites named above.
+- **Fix:** `mt5/market_data.py` now attaches `close_time` (open `time` + the timeframe's own duration) and
+  `is_closed` (`close_time <= ` the authoritative current time, boundary inclusive) columns to every candle
+  DataFrame — a candle's state is always derived from its own timestamp, never assumed from row position or
+  count. A new `analysis/structure.py::closed_only(candles)` filters a `{timeframe: df}` dict down to closed
+  rows only — the one place the filter logic lives, called explicitly at each of the six structural call
+  sites (making the forming/closed distinction visible at the point of use, not hidden behind a changed
+  default). None of the structural functions themselves changed — only *which* DataFrame reaches them.
+  `current_price` (zone proximity, entry planning) is the one deliberate, explicitly-named exception,
+  reading the unfiltered set's last close — real trading semantics: you enter at the live price, not the
+  price as of the last confirmed 5-minute close. `analysis/setup.py::_plan_trade()`'s signature now takes
+  the closed-only range and `current_price` as separate parameters, making that split explicit at the one
+  place it's needed. `api/snapshot.py`'s `latest_m5_candle` display field and `/api/market/candles`
+  (charting) are unchanged — legitimate forming-candle consumers, per the stage's own list.
+- **Regression coverage:** 25 new tests. `tests/test_candle_state.py` — `is_closed`/`close_time` correctness
+  (future/past/exact-boundary, all four timeframes, live via a `FakeMT5` and mock mode, mock-mode
+  determinism). `tests/test_structure.py` — a real (unmocked) structural scenario reusing the file's own
+  known-good bullish HH/HL fixture, proving a forming candle that WOULD flip the state to PULLBACK (proven
+  via the unfiltered read) is correctly ignored once filtered to closed candles (the no-lookahead guard).
+  `tests/test_setup.py` and `tests/test_strategy_evaluator.py` — argument-capture proofs that
+  `detect_setup()`/`evaluate_deterministic()` pass only closed candles to sweep/displacement/retracement
+  checks, plus a proof that `entry`/zone-proximity still correctly reflects the forming candle's current
+  price (the legitimate exception). `tests/test_monitoring_engine.py` — two monitoring cycles whose candle
+  histories differ only in a forming last bar (engineered to flip structure if leaked) produce zero alerts.
+  Three pre-existing `tests/test_api.py` tests (`test_structure_endpoint_matches_analyze_structure`,
+  `test_zones_endpoint_matches_compute_zones`, `test_regime_endpoint_matches_classify_regime`) were updated
+  to compare against the same closed-only set the fixed routes now use — their prior assertions compared
+  against an unfiltered computation, which is exactly the bug being fixed, not a correct baseline.
+- **Verification result:** full suite 1101/1101 backend (1076 baseline + 25 new), 133/133 frontend, 14/14 E2E
+  checklists, lint/typecheck/build all clean — zero regressions elsewhere.
+- **Potential fix (superseded by the above):** ~~Drop the forming bar (fetch from position 1, or trim the
+  last row when its close time is in the future) before any structural computation.~~ — implemented via
+  explicit timestamp-derived state instead of a positional drop, per the stage's own instruction not to
+  infer state from row position.
 
 ### VAL-007 — Previous Day High/Low is computed from an incomplete prior day
 - **Subsystem:** `analysis/zones.py:29-33`, fed by `get_all_candles(300)` (300 M5 bars ≈ 25 hours).
