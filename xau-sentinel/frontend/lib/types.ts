@@ -370,7 +370,7 @@ export interface DimensionBreakdown {
 }
 
 export type FundedNextAccountType = "stellar_2step" | "stellar_lite";
-export type FundedNextPhase = "challenge" | "funded";
+export type FundedNextPhase = "challenge" | "challenge_phase2" | "funded";
 export type SafetyLevel = "SAFE" | "WARNING" | "CRITICAL" | "BREACHED" | "UNKNOWN";
 
 export interface FundedNextViolation {

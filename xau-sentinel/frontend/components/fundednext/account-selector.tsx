@@ -12,7 +12,8 @@ const ACCOUNT_TYPES: { value: FundedNextSettings["account_type"]; label: string 
 ];
 
 const PHASES: { value: FundedNextSettings["phase"]; label: string }[] = [
-  { value: "challenge", label: "Challenge" },
+  { value: "challenge", label: "Challenge · Phase 1" },
+  { value: "challenge_phase2", label: "Challenge · Phase 2" },
   { value: "funded", label: "Funded" },
 ];
 

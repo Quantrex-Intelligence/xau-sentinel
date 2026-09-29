@@ -55,7 +55,12 @@ def compute_status(account_type: AccountType, phase: Phase, consistency_enabled:
 
     today_pnl = snapshot.equity - day_start_balance
 
-    profit_target_pct = rules.profit_target_phase1_pct if phase == Phase.CHALLENGE else None
+    # VAL-031: phase 2 has its own (lower) target — Stellar 2-Step 5%, Lite 4% —
+    # not phase 1's 8%. The funded phase has none.
+    profit_target_pct = {
+        Phase.CHALLENGE: rules.profit_target_phase1_pct,
+        Phase.CHALLENGE_PHASE2: rules.profit_target_phase2_pct,
+    }.get(phase)
     profit_target = profit_target_pct * initial_balance if profit_target_pct else None
     progress_to_target_pct = (
         round((snapshot.equity - initial_balance) / profit_target * 100, 1)
@@ -63,7 +68,7 @@ def compute_status(account_type: AccountType, phase: Phase, consistency_enabled:
     )
 
     trading_days_completed = len(history)
-    trading_days_required = rules.min_trading_days if phase == Phase.CHALLENGE else None
+    trading_days_required = rules.min_trading_days if phase in _EVALUATION_PHASES else None
 
     largest_day_pct_of_profit = None
     if consistency_enabled and history:
@@ -144,6 +149,9 @@ def compute_status(account_type: AccountType, phase: Phase, consistency_enabled:
         largest_day_pct_of_profit=largest_day_pct_of_profit,
         safety_level=safety_level, violations=violations, reason=reason,
     )
+
+
+_EVALUATION_PHASES = (Phase.CHALLENGE, Phase.CHALLENGE_PHASE2)
 
 
 def _used_pct(allowance: float, remaining: float) -> float:

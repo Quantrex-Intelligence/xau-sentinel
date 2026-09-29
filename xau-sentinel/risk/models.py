@@ -12,7 +12,10 @@ class AccountType(str, Enum):
 
 
 class Phase(str, Enum):
+    # "challenge" is the first evaluation phase; its stored value is kept
+    # unchanged so existing saved settings and journal snapshots still load.
     CHALLENGE = "challenge"
+    CHALLENGE_PHASE2 = "challenge_phase2"  # VAL-031: both Stellar accounts are two-step
     FUNDED = "funded"
 
 
@@ -35,7 +38,7 @@ class RuleSet:
     max_loss_pct: float            # of initial balance; static floor, equity-based
     profit_target_phase1_pct: float
     profit_target_phase2_pct: float
-    min_trading_days: int          # challenge phase only
+    min_trading_days: int          # each challenge phase (1 and 2); not the funded phase
     consistency_pct: Optional[float]  # None = not enforced by default (opt-in add-on)
     drawdown_type: str = "static"  # "static" | "trailing" — both current account types are static
 

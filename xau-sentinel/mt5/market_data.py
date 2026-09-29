@@ -13,6 +13,7 @@ import pandas as pd
 
 import config
 from mt5 import connection, timeutil
+from stable_seed import stable_seed
 
 try:
     import MetaTrader5 as mt5
@@ -34,6 +35,17 @@ _TIMEFRAME_MINUTES = {"M5": 5, "M15": 15, "H1": 60, "H4": 240}
 class MarketDataError(Exception):
     """Raised when live market data cannot be retrieved. Callers should show a
     disconnected state rather than let this propagate into a crash."""
+
+
+def _no_data_error(what: str) -> MarketDataError:
+    """VAL-028: connection.connect() reports success once the terminal is up,
+    even when the configured symbol isn't available from this broker (that's
+    recorded separately as symbol_ready()/last_error()). Without this, the
+    only visible symptom was a generic "no candle data" error; now the real
+    cause reaches the user whenever it's known."""
+    if not connection.symbol_ready() and connection.last_error():
+        return MarketDataError(f"{what}: {connection.last_error()}")
+    return MarketDataError(what)
 
 
 def _with_candle_state(df: pd.DataFrame, timeframe: str, now: Optional[datetime] = None) -> pd.DataFrame:
@@ -68,7 +80,7 @@ def get_candles(timeframe: str, count: int = 300) -> pd.DataFrame:
     mt5_tf = getattr(mt5, _MT5_TIMEFRAME_ATTR[timeframe])
     rates = mt5.copy_rates_from_pos(config.TRADING_SYMBOL, mt5_tf, 0, count)
     if rates is None or len(rates) == 0:
-        raise MarketDataError(f"No candle data returned for {timeframe}")
+        raise _no_data_error(f"No candle data returned for {timeframe}")
 
     df = pd.DataFrame(rates)
     df["time"] = timeutil.series_to_utc(df["time"])
@@ -87,7 +99,7 @@ def get_price_info() -> dict:
 
     tick = mt5.symbol_info_tick(config.TRADING_SYMBOL)
     if tick is None:
-        raise MarketDataError("No tick data available")
+        raise _no_data_error("No tick data available")
 
     spread = round(tick.ask - tick.bid, 2)
     return {
@@ -130,7 +142,7 @@ _MOCK_BASE_PRICE = 3742.50
 
 
 def _mock_seed(timeframe: str) -> int:
-    return abs(hash((timeframe, "xau-sentinel-mock"))) % (2**32)
+    return stable_seed(timeframe, "xau-sentinel-mock")
 
 
 def _mock_candles(timeframe: str, count: int) -> pd.DataFrame:

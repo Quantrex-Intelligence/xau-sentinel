@@ -17,6 +17,7 @@ import config
 from mt5 import connection
 from mt5.timeutil import server_now, server_timezone, to_utc
 from risk.models import AccountSnapshot
+from stable_seed import stable_seed
 
 try:
     import MetaTrader5 as mt5
@@ -82,8 +83,15 @@ def get_daily_pnl_history(days: int = 10) -> Optional[List[tuple]]:
     if mt5 is None or not connection.is_connected():
         return None
     try:
-        to_dt = datetime.now(timezone.utc)
-        from_dt = to_dt - timedelta(days=days)
+        now_utc = datetime.now(timezone.utc)
+        from_dt = now_utc - timedelta(days=days)
+        # VAL-017: deal times are the broker server's wall-clock epoch (see
+        # mt5/timeutil.py), which runs AHEAD of true UTC on a UTC+2/+3 server
+        # like FundedNext's. A window ending at true-UTC "now" would drop the
+        # last 2-3 hours of deals — exactly today's most recent closes, which
+        # feed the daily-loss anchor. No deal can be in the future, so ending
+        # the window a day ahead is safe under either epoch interpretation.
+        to_dt = now_utc + timedelta(days=1)
         deals = mt5.history_deals_get(from_dt, to_dt)
         if deals is None:
             return []
@@ -97,10 +105,19 @@ def get_daily_pnl_history(days: int = 10) -> Optional[List[tuple]]:
             if d.type not in (mt5.DEAL_TYPE_BUY, mt5.DEAL_TYPE_SELL):
                 continue
             local_date = to_utc(d.time).astimezone(tz).date()
-            by_day[local_date] = by_day.get(local_date, 0.0) + float(d.profit)
+            by_day[local_date] = by_day.get(local_date, 0.0) + _realized_pnl(d)
         return sorted(by_day.items())
     except Exception:  # noqa: BLE001
         return None
+
+
+def _realized_pnl(deal) -> float:
+    """VAL-016: the balance change a trade deal actually caused. MT5 debits
+    commission, swap and fee from the balance alongside `profit` (commission
+    is often charged on the opening deal, whose profit is 0), so leaving them
+    out makes compute_status()'s day_start_balance = balance - realized P/L
+    wrong by exactly those charges. Missing attributes count as 0."""
+    return sum(float(getattr(deal, name, 0.0) or 0.0) for name in ("profit", "commission", "swap", "fee"))
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +125,7 @@ def get_daily_pnl_history(days: int = 10) -> Optional[List[tuple]]:
 # ---------------------------------------------------------------------------
 
 def _mock_seed(salt: str) -> int:
-    return abs(hash((salt, "xau-sentinel-fundednext-mock"))) % (2**32)
+    return stable_seed(salt, "xau-sentinel-fundednext-mock")
 
 
 def _mock_account_snapshot() -> AccountSnapshot:

@@ -32,7 +32,10 @@ types below):
   that choice isn't exposed through any data source this app has access
   to, so it is intentionally left unconfigured for the funded phase rather
   than guessed. Challenge-phase minimum trading days (5, both account
-  types) IS a fixed evaluation requirement and is included.
+  types) IS a fixed evaluation requirement and is included, for phase 1
+  and phase 2 alike (VAL-031 added the phase-2 case). The completed-days
+  count is taken from the recent deal history, not from the day the
+  current phase started — that date isn't available from MT5 either.
 """
 from risk.models import AccountType, RuleSet
 

@@ -10,6 +10,8 @@ from typing import List
 
 import numpy as np
 
+from stable_seed import stable_seed
+
 from ai.market_intelligence.models import (
     CrossAssetSnapshot, EconomicEvent, GoldFundamentals, MacroSnapshot, NewsArticle,
 )
@@ -19,7 +21,7 @@ from ai.market_intelligence.providers.base import (
 
 
 def _mock_seed(salt: str) -> int:
-    return abs(hash((salt, "xau-sentinel-market-intelligence-mock"))) % (2**32)
+    return stable_seed(salt, "xau-sentinel-market-intelligence-mock")
 
 
 def _today() -> str:
