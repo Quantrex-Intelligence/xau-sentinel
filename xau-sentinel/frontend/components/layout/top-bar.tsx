@@ -4,6 +4,7 @@ import { useMarket } from "@/lib/market-context";
 import { formatAgo, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Circle } from "lucide-react";
+import { NotificationBell } from "@/components/monitoring/notification-bell";
 
 export function TopBar() {
   const { snapshot, status } = useMarket();
@@ -73,6 +74,7 @@ export function TopBar() {
           <Circle className="size-2 fill-current" />
           {status === "open" ? "STREAM LIVE" : status === "connecting" ? "CONNECTING" : "RECONNECTING"}
         </span>
+        <NotificationBell />
       </span>
     </header>
   );

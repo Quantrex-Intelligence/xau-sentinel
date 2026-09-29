@@ -210,6 +210,32 @@ export interface AlertItem {
   details: Record<string, unknown> | null;
 }
 
+/** Stage 13's typed, deduplicated, acknowledgeable monitoring alerts —
+ * distinct from AlertItem above (Stage 1's simple event log, unrelated,
+ * served at /api/alerts). See ai/monitoring/models.py::AlertEvent. */
+export type MonitoringAlertType =
+  | "SETUP_STATE_CHANGED"
+  | "APLUS_SETUP_DETECTED"
+  | "APLUS_SETUP_INVALIDATED"
+  | "HIGH_IMPACT_EVENT_NEAR"
+  | "MARKET_INTELLIGENCE_QUALITY_CHANGED"
+  | "RISK_STATUS_CHANGED";
+
+export type MonitoringAlertSeverity = "INFO" | "WARNING" | "CRITICAL";
+
+export interface MonitoringAlert {
+  id: number;
+  type: MonitoringAlertType;
+  severity: MonitoringAlertSeverity;
+  title: string;
+  message: string;
+  symbol: string;
+  payload: Record<string, unknown>;
+  dedup_key: string;
+  acknowledged: boolean;
+  timestamp: string;
+}
+
 export type FundedNextAccountType = "stellar_2step" | "stellar_lite";
 export type FundedNextPhase = "challenge" | "funded";
 export type SafetyLevel = "SAFE" | "WARNING" | "CRITICAL" | "BREACHED" | "UNKNOWN";

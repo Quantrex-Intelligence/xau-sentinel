@@ -106,6 +106,22 @@ def _default_thresholds(monkeypatch):
     monkeypatch.setattr(config, "MARKET_INTEL_CACHE_TTL_NEWS_SECONDS", 600)
     monkeypatch.setattr(config, "MARKET_INTEL_CACHE_TTL_CROSS_ASSET_SECONDS", 120)
     monkeypatch.setattr(config, "MARKET_INTEL_STALE_AFTER_SECONDS", 7200.0)
+    monkeypatch.setattr(config, "MONITORING_ENABLED", False)
+    monkeypatch.setattr(config, "MONITORING_INTERVAL_SECONDS", 20)
+    monkeypatch.setattr(config, "MONITORING_EVENT_WARNING_MINUTES", 30)
+    monkeypatch.setattr(config, "ALERT_RETENTION_DAYS", 30)
+
+
+@pytest.fixture(autouse=True)
+def _reset_monitoring_engine_state():
+    """ai/monitoring/engine.py's `_last_snapshot` is module-level, process-
+    lifetime state (by design — see its own docstring). Without this, one
+    test's snapshot could leak into a later test and make a genuine
+    transition look like a no-op, or vice versa."""
+    from ai.monitoring import engine
+    engine.reset_state()
+    yield
+    engine.reset_state()
 
 
 @pytest.fixture(autouse=True)

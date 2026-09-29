@@ -184,3 +184,13 @@ MARKET_INTEL_STALE_AFTER_SECONDS = float(os.getenv("MARKET_INTEL_STALE_AFTER_SEC
 
 IS_MOCK = MODE == "mock"
 IS_LIVE = MODE == "live"
+
+# --- Real-Time Monitoring & In-App Alert Engine (Stage 13) — an
+# application-level polling loop that watches the existing deterministic
+# engines (setup state, A+ evaluator, FundedNext risk, Market Intelligence
+# quality) for state transitions and turns them into typed, deduplicated,
+# acknowledgeable alerts. See ai/monitoring/.
+MONITORING_ENABLED = os.getenv("MONITORING_ENABLED", "true").strip().lower() == "true"
+MONITORING_INTERVAL_SECONDS = int(os.getenv("MONITORING_INTERVAL_SECONDS", 20))
+MONITORING_EVENT_WARNING_MINUTES = int(os.getenv("MONITORING_EVENT_WARNING_MINUTES", 30))
+ALERT_RETENTION_DAYS = int(os.getenv("ALERT_RETENTION_DAYS", 30))

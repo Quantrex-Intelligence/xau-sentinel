@@ -20,6 +20,7 @@ import type {
   MarketSnapshot,
   MemoryCreateInput,
   MemoryRecord,
+  MonitoringAlert,
   Regime,
   Risk,
   Settings,
@@ -130,4 +131,15 @@ export const api = {
   similarityForTrade: (tradeId: number) => request<SimilarityResult>(`/api/similarity/trade/${tradeId}`),
 
   marketIntelligence: () => request<MarketIntelligenceContext>("/api/market-intelligence"),
+
+  // Stage 13 — distinct from `alerts` above (Stage 1's unrelated /api/alerts log).
+  monitoringAlerts: (filters?: Record<string, string>) => {
+    const qs = filters ? `?${new URLSearchParams(filters).toString()}` : "";
+    return request<MonitoringAlert[]>(`/api/monitoring/alerts${qs}`);
+  },
+  unreadAlerts: () => request<MonitoringAlert[]>("/api/monitoring/alerts/unread"),
+  acknowledgeAlert: (id: number) =>
+    request<{ acknowledged: boolean }>(`/api/monitoring/alerts/${id}/acknowledge`, { method: "POST" }),
+  acknowledgeAllAlerts: () =>
+    request<{ acknowledged: boolean; count: number }>("/api/monitoring/alerts/acknowledge-all", { method: "POST" }),
 };

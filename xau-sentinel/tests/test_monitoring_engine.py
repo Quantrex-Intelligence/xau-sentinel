@@ -1,0 +1,142 @@
+"""Tests for ai/monitoring/engine.py::run_monitoring_cycle() — every
+underlying dependency monkeypatched (same technique
+tests/test_strategy_contextual_analysis.py already uses for
+evaluate_current_setup()'s dependencies): first cycle establishes a
+baseline with zero alerts, a changed mock on the second cycle produces
+exactly the right alert, an unchanged third cycle produces zero (in-memory
+dedup), and the engine never touches an LLM provider."""
+import inspect
+
+import pytest
+
+from ai.monitoring import engine, store
+from risk.models import AccountType, FundedNextStatus, Phase, SafetyLevel
+from tests.conftest import flat_candles
+
+
+def _candles():
+    return {tf: flat_candles(60, price=3700.0, tf_minutes=m) for tf, m in
+            (("M5", 5), ("M15", 15), ("H1", 60), ("H4", 240))}
+
+
+def _fn_status(safety_level=SafetyLevel.SAFE):
+    return FundedNextStatus(
+        account_type=AccountType.STELLAR_2STEP, phase=Phase.CHALLENGE, mode="mock", data_available=True,
+        safety_level=safety_level, reason="ok", daily_loss_used_pct=10.0, max_drawdown_used_pct=5.0,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_monitoring_table(temp_db):
+    store.init_table()
+    return temp_db
+
+
+@pytest.fixture(autouse=True)
+def _patch_dependencies(monkeypatch):
+    monkeypatch.setattr(engine.market_data, "get_all_candles", lambda count=300: _candles())
+    monkeypatch.setattr(engine.settings_store, "get_settings",
+                         lambda: {"account_type": "stellar_2step", "phase": "challenge", "consistency_enabled": False})
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status())
+
+    class _FakeMiContext:
+        data_available = True
+        macro = None
+        gold_fundamentals = None
+        cross_asset = None
+        events = []
+        news = []
+        sources = []
+
+    monkeypatch.setattr(engine.mi_context, "build_market_intelligence_context", lambda: _FakeMiContext())
+
+
+def test_first_cycle_establishes_baseline_with_no_alerts():
+    created = engine.run_monitoring_cycle()
+    assert created == []
+
+
+def test_unchanged_second_cycle_creates_no_alerts():
+    engine.run_monitoring_cycle()
+    created = engine.run_monitoring_cycle()
+    assert created == []
+
+
+def test_risk_status_transition_creates_exactly_one_alert(monkeypatch):
+    engine.run_monitoring_cycle()  # baseline: SAFE
+
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
+    created = engine.run_monitoring_cycle()
+
+    assert len(created) == 1
+    assert created[0].type.value == "RISK_STATUS_CHANGED"
+    assert created[0].severity.value == "CRITICAL"
+
+
+def test_risk_status_transition_does_not_duplicate_on_repeated_identical_cycles(monkeypatch):
+    engine.run_monitoring_cycle()  # baseline: SAFE
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
+    engine.run_monitoring_cycle()  # transition: 1 alert
+
+    created_again = engine.run_monitoring_cycle()  # still CRITICAL
+    assert created_again == []
+
+    all_alerts = store.list_alerts(limit=100)
+    critical_alerts = [a for a in all_alerts if a.type.value == "RISK_STATUS_CHANGED"]
+    assert len(critical_alerts) == 1
+
+
+def test_created_alerts_are_actually_persisted(monkeypatch):
+    engine.run_monitoring_cycle()
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.WARNING))
+    engine.run_monitoring_cycle()
+
+    stored = store.list_alerts(limit=100)
+    assert len(stored) == 1
+    assert stored[0].id is not None
+
+
+def test_reset_state_clears_baseline(monkeypatch):
+    engine.run_monitoring_cycle()  # baseline: SAFE
+    engine.reset_state()
+
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
+    created = engine.run_monitoring_cycle()  # treated as a NEW baseline, not a transition
+    assert created == []
+
+
+def test_a_bad_cycle_never_crashes_run_forever_loop(monkeypatch):
+    """run_forever() wraps each cycle in try/except — verified structurally
+    since actually running the async loop would sleep indefinitely."""
+    source = inspect.getsource(engine.run_forever)
+    assert "except Exception" in source
+    assert "await asyncio.sleep" in source
+
+
+def _source_without_module_docstring(module) -> str:
+    """Strips the module's own docstring by AST line range before a
+    substring search — the docstring explains this file's safety
+    guarantees in prose using the same words being searched for, which
+    would otherwise false-positive a plain source-text search on itself
+    (the same fix ai/strategy/evidence.py's equivalent test already uses)."""
+    import ast
+    source = inspect.getsource(module)
+    tree = ast.parse(source)
+    lines = source.splitlines()
+    if tree.body and isinstance(tree.body[0], ast.Expr) and isinstance(tree.body[0].value, ast.Constant):
+        node = tree.body[0]
+        lines = lines[:node.lineno - 1] + lines[node.end_lineno:]
+    return "\n".join(lines)
+
+
+def test_engine_never_touches_an_llm_provider():
+    """Structural guarantee: engine.py calls evaluate_deterministic()
+    directly, never evaluate_current_setup()/attach_llm_explanation() — no
+    code path here reaches an LLM."""
+    code = _source_without_module_docstring(engine)
+    for banned in ("get_provider", ".chat(", "attach_llm_explanation", "evaluate_current_setup"):
+        assert banned not in code
+
+
+def test_engine_imports_evaluate_deterministic_not_the_llm_wrapper():
+    assert engine.evaluate_deterministic.__name__ == "evaluate_deterministic"

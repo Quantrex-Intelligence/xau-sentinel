@@ -1,21 +1,25 @@
 """FastAPI application factory — a thin presentation layer over the existing,
 frozen Stage 1 engine. No trading logic lives here; see api/snapshot.py for
 the one place multiple engine calls are assembled together."""
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import config
 from ai.assistant import init_table as init_ai_messages_table
 from ai.knowledge.seed_documents import seed_if_empty as seed_knowledge_if_empty
 from ai.knowledge.store import init_table as init_knowledge_tables
 from ai.memory.store import init_table as init_memory_table
+from ai.monitoring import engine as monitoring_engine
+from ai.monitoring.store import init_table as init_monitoring_table
 from journal.database import init_db
 from risk.fundednext_journal import init_table as init_fundednext_context_table
 from api.routes import (
-    ai, alerts, fundednext, journal, knowledge, market, market_intelligence, memory, risk, settings, setup,
-    similarity, strategy,
+    ai, alerts, fundednext, journal, knowledge, market, market_intelligence, memory, monitoring, risk,
+    settings, setup, similarity, strategy,
 )
 from api import ws
 
@@ -30,7 +34,14 @@ async def _lifespan(app: FastAPI):
     init_knowledge_tables()
     seed_knowledge_if_empty()
     init_memory_table()
+    init_monitoring_table()
+
+    task = None
+    if config.MONITORING_ENABLED:
+        task = asyncio.create_task(monitoring_engine.run_forever())
     yield
+    if task is not None:
+        task.cancel()
 
 
 def create_app() -> FastAPI:
@@ -60,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(memory.router)
     app.include_router(similarity.router)
     app.include_router(market_intelligence.router)
+    app.include_router(monitoring.router)
     app.include_router(ws.router)
 
     return app
