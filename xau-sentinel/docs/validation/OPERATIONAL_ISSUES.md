@@ -58,8 +58,8 @@ issues are documented, not patched.
 ### OP-005 — Real LLM testing (spec §3)
 
 - **Severity:** N/A
-- **Classification:** insufficient validation (configuration)
-- **Detail:** `.env` has `AI_PROVIDER=mock`, no API key set. Per the user's explicit decision (asked before this stage began), no key was requested and no real LLM call was made. All AI-dependent checks in this stage (A+ explanation, alert explanation, trade review, assistant Q&A) ran against the mock provider only, which is already covered by the existing test/E2E suite — not independently re-validated here for real-provider behavior.
+- **Classification:** insufficient validation (configuration) at the time this stage ran; **since closed**
+- **Detail:** At the time this stage ran, `.env` had `AI_PROVIDER=mock`, no API key set — per the user's explicit decision, no key was requested and no real LLM call was made. **Follow-up (2026-09-30, same night):** the user provided a real Groq API key and added `AI_PROVIDER=groq` support (new `ai/providers/groq_provider.py`, see its own commit). Live-verified: `GET /api/ai/config` → `configured: true, provider: "groq", model: "openai/gpt-oss-120b"`; a real `POST /api/ai/chat` call returned a genuine model-generated answer, correctly grounded in the deterministic context (`**FACT:** ... DEVELOPING (BUY) ...`), with the safety-filter framing intact and no actionable-directive or probability-claim language. The originally-suggested Groq model name (`llama-3.3-70b-versatile`) had been retired from Groq's catalog — found via `GET https://api.groq.com/openai/v1/models` with the real key, corrected to `openai/gpt-oss-120b`. This stage's own A+ explanation / alert explanation / trade review AI paths were still only exercised against mock during the stage itself — not retroactively re-run against the real provider, since they weren't part of this specific follow-up check.
 
 ### OP-006 — Digest period-boundary live check (spec §6)
 

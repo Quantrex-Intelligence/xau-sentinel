@@ -83,7 +83,11 @@ FUNDEDNEXT_BALANCE_MISMATCH_TOLERANCE_PCT = float(os.getenv("FUNDEDNEXT_BALANCE_
 
 # --- AI Assistant (Stage 3) — analyst/explainer over the engine's own
 # output, never a trading voice. See ai/README or ai/assistant.py. ---
-AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic").strip().lower()  # "anthropic" | "mock"
+AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic").strip().lower()  # "anthropic" | "groq" | "mock"
+# AI_API_KEY/AI_MODEL are provider-agnostic on purpose (not ANTHROPIC_API_KEY):
+# switching AI_PROVIDER points them at a different vendor's key/model. The
+# default AI_MODEL is an Anthropic model name — set it to a real Groq model
+# (e.g. "llama-3.3-70b-versatile") when AI_PROVIDER=groq.
 AI_API_KEY = os.getenv("AI_API_KEY", "").strip()
 AI_MODEL = os.getenv("AI_MODEL", "claude-haiku-4-5-20251001").strip()
 AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", 1024))

@@ -14,3 +14,7 @@ httpx==0.28.1
 # ai/providers/anthropic_provider.py — the app still runs (with AI_PROVIDER
 # unset or set to "mock") if this isn't installed.
 anthropic==1.8.0
+
+# Alternate AI_PROVIDER=groq. Same import-guard treatment, in
+# ai/providers/groq_provider.py.
+groq==1.7.0

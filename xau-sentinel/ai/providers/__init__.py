@@ -30,9 +30,14 @@ def get_provider(name: Optional[str] = None) -> BaseProvider:
         from ai.providers.anthropic_provider import AnthropicProvider
         return AnthropicProvider()
 
+    if provider_name == "groq":
+        # Same lazy-import reasoning as anthropic above.
+        from ai.providers.groq_provider import GroqProvider
+        return GroqProvider()
+
     provider_cls = _NON_ANTHROPIC_PROVIDERS.get(provider_name)
     if provider_cls is None:
         raise ProviderConfigError(
-            f"Unknown AI_PROVIDER '{provider_name}'. Valid options: anthropic, mock."
+            f"Unknown AI_PROVIDER '{provider_name}'. Valid options: anthropic, groq, mock."
         )
     return provider_cls()
