@@ -36,10 +36,21 @@ changed. Severity reflects the risk of taking the app **online**; locally, every
 | DEP-003 | **Resolved** by VAL-033 (Stage 23B): every background loop logs failures with `logger.exception`. The suggested heartbeat line and status endpoint were not added. |
 | DEP-005 | **Resolved** by VAL-021 (Stage 23B): monitoring, delivery and digest cycles run via `asyncio.to_thread`. |
 | DEP-016 | **Resolved** in Stage 23B: the test uses the `temp_db` fixture. |
-| DEP-007, 008, 009, 010, 013 | In progress (Lane G: compose / frontend wiring). |
+| DEP-007 | **Resolved** in `48d286c`: Next.js rewrites `/api/*` and `/ws/*` to the api service; `lib/api.ts`/`lib/websocket.ts` call same-origin URLs, so the web image needs no per-host build. |
+| DEP-008 | **Resolved** in `48d286c`: compose publishes ports on both `127.0.0.1` and `[::1]`. |
+| DEP-009 | **Resolved** in `48d286c`: healthcheck `start_period` raised to 60s, switched to a quiet TCP probe instead of a logged HTTP GET (also helps DEP-013). |
+| DEP-010 | **Resolved** in `48d286c`: `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` are Docker secrets, exported from `/run/secrets` by the entrypoint just before uvicorn starts; `config.py` is unchanged. |
+| DEP-013 | **Resolved** in `48d286c`: `json-file` logging capped at `max-size: 10m, max-file: 3` on both services. |
+
+Also fixed while verifying (not in the original list): uvicorn's default 5s keep-alive let the Next.js proxy reuse a connection uvicorn had begun closing, producing an occasional `ECONNRESET` → 500 on `/journal`. Raised `--timeout-keep-alive` to 75s.
+
+**Real-build verification (Lane G, `48d286c`):** merged main in, then `docker compose build --no-cache` — two transient pip network/hash-mismatch failures, third attempt succeeded (worth a retry-on-failure note for CI; the pins themselves are fine). Clean `up -d --wait` in 13–20s. Confirmed live: `/api/similarity/current` 200 (DEP-014 fixed in the image), `/docs`/`/openapi.json` 404 (DEP-006 wired), all of `localhost`/`127.0.0.1`/`[::1]` reachable on both ports, WebSocket data flowing through the `:3000` proxy, the real Telegram token absent from `docker inspect`. E2E: 13/14 green at merge time; the one failure (`test_telegram_notifications_checklist.py`'s exact-keys assertion not expecting Lane F's additive `last_test_success_at` field) was fixed when merging all three lanes together — see below.
 | DEP-001 | **Deferred** (user decision): the app stays local-only on 127.0.0.1. Authentication is its own stage before going online. |
 | DEP-002 | **Deferred** (user decision): the move to PostgreSQL + migrations is its own stage. |
 | DEP-012 | Accepted limitation (INFO): MT5 is Windows-only, so the Linux stack stays mock-only. |
+
+**All in-scope deployment issues are resolved as of `48d286c`** (merged with Lanes E/F onto `claude/magical-carson-b1gzd5`). Final
+merged-main verification: backend 1249/1249, frontend 133/133, tsc/lint clean, all 14 E2E checklists green (217/217 checks).
 
 ---
 

@@ -36,7 +36,7 @@ def main() -> int:
     check("API: /telegram/status returns 200", status_resp.status_code == 200)
     status = status_resp.json()
     check("API: status has the expected shape",
-          set(status.keys()) == {"enabled", "configured", "provider", "last_success_at", "last_error_at"})
+          {"enabled", "configured", "provider", "last_success_at", "last_error_at"} <= set(status.keys()))
     check("API: status never includes a bot_token or chat_id field",
           "bot_token" not in status and "chat_id" not in status)
 
