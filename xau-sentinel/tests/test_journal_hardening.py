@@ -3,17 +3,16 @@ trade), VAL-029 (trade + FundedNext snapshot are atomic), VAL-030 (one
 snapshot per trade, enforced even on a legacy DB), VAL-032 (result is
 validated/normalized to WIN/LOSS/BE). Every test drives the real code path
 (temp_db + real create_trade/close_trade or the real API route)."""
-import sqlite3
-
 import pytest
+import sqlalchemy.exc
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from api.main import app
 from api.routes import journal as journal_routes
 from journal import trades as trades_repo
 from journal.database import get_connection
-from risk import fundednext_journal
-from risk.fundednext_journal import get_snapshot, init_table, save_snapshot
+from risk.fundednext_journal import get_snapshot, save_snapshot
 from risk.models import AccountType, FundedNextStatus, Phase, SafetyLevel
 
 
@@ -42,7 +41,7 @@ def _status(balance=50_000.0) -> FundedNextStatus:
 
 def _count(table: str) -> int:
     with get_connection() as conn:
-        return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        return conn.execute(text(f"SELECT COUNT(*) FROM {table}")).fetchone()[0]
 
 
 @pytest.fixture
@@ -118,7 +117,7 @@ def test_api_status_failure_creates_no_trade(api_client, monkeypatch):
 
 def test_api_snapshot_write_failure_rolls_back_the_trade_insert(api_client, monkeypatch):
     def boom(*_args, **_kwargs):
-        raise sqlite3.OperationalError("disk I/O error")
+        raise RuntimeError("simulated database failure")
     monkeypatch.setattr(journal_routes, "save_fundednext_snapshot", boom)
 
     resp = api_client.post("/api/journal/trades", json={"direction": "BUY", "entry": 3740.0, "stop_loss": 3735.0})
@@ -132,38 +131,20 @@ def test_api_snapshot_write_failure_rolls_back_the_trade_insert(api_client, monk
 # ---------------------------------------------------------------------------
 
 def test_second_snapshot_for_same_trade_is_rejected(temp_db):
-    init_table()
     trade_id = trades_repo.create_trade(_trade_payload(), _context_payload())
     save_snapshot(trade_id, _status(50_000.0), 0.05, 0.10)
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(sqlalchemy.exc.IntegrityError):
         save_snapshot(trade_id, _status(99_999.0), 0.05, 0.10)
     assert get_snapshot(trade_id)["balance"] == 50_000.0
 
 
-def test_init_table_dedupes_a_legacy_db_keeping_the_earliest_snapshot(temp_db):
-    """A dev DB created before the UNIQUE index may already hold duplicates;
-    init_table() must not crash on it."""
-    with get_connection() as conn:
-        conn.executescript(fundednext_journal.TABLE_SCHEMA)  # legacy: table, no unique index
-        conn.commit()
-    trade_id = trades_repo.create_trade(_trade_payload(), _context_payload())
-    other_id = trades_repo.create_trade(_trade_payload(), _context_payload())
-    save_snapshot(trade_id, _status(50_000.0), 0.05, 0.10)
-    save_snapshot(trade_id, _status(77_000.0), 0.05, 0.10)
-    save_snapshot(other_id, _status(60_000.0), 0.05, 0.10)
-
-    init_table()
-
-    assert _count("fundednext_context") == 2
-    assert get_snapshot(trade_id)["balance"] == 50_000.0
-    assert get_snapshot(other_id)["balance"] == 60_000.0
-    with pytest.raises(sqlite3.IntegrityError):
-        save_snapshot(trade_id, _status(1.0), 0.05, 0.10)
-
-
-def test_init_table_is_idempotent(temp_db):
-    init_table()
-    init_table()
+# DEP-002: test_init_table_dedupes_a_legacy_db_keeping_the_earliest_snapshot
+# and test_init_table_is_idempotent are gone -- they covered the
+# sqlite3-era CREATE TABLE IF NOT EXISTS + inline DELETE-dedup migration
+# that init_table() used to run, needed only because that pattern could
+# never alter a live table. Alembic (see alembic/versions/0001_initial_schema.py)
+# creates the already-deduplicated, indexed shape directly; there is no
+# legacy-DB dedup path left to test.
 
 
 # ---------------------------------------------------------------------------

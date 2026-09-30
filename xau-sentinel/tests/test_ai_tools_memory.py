@@ -11,14 +11,12 @@ def test_search_memory_requires_a_query(temp_db):
 
 
 def test_search_memory_returns_no_results_for_an_empty_store(temp_db):
-    store.init_table()
     result = memory_tools.search_memory({"query": "anything"})
     assert result.data_available is True
     assert result.data["results"] == []
 
 
 def test_search_memory_finds_a_relevant_record(temp_db):
-    store.init_table()
     store.create_memory(MemoryCategory.TRADE_LESSON, "User repeatedly enters too early before retracement.")
     result = memory_tools.search_memory({"query": "why do I enter too early?"})
     assert result.data_available is True
@@ -31,13 +29,11 @@ def test_get_memory_requires_a_memory_id(temp_db):
 
 
 def test_get_memory_unavailable_for_unknown_id(temp_db):
-    store.init_table()
     result = memory_tools.get_memory({"memory_id": 999999})
     assert result.data_available is False
 
 
 def test_get_memory_returns_the_record_including_archived_status(temp_db):
-    store.init_table()
     record = store.create_memory(MemoryCategory.USER_PREFERENCE, "Prefers XAUUSD only.")
     store.archive_memory(record.id)
 

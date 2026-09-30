@@ -42,7 +42,6 @@ class _RecordingProvider(BaseProvider):
 
 @pytest.fixture(autouse=True)
 def _ai_table(temp_db):
-    assistant.init_table()
     return temp_db
 
 
@@ -222,12 +221,10 @@ def test_rag_memory_tools_and_similarity_work_together_in_one_turn(monkeypatch, 
     from ai.memory import store as memory_store
     from ai.memory.models import MemoryCategory
 
-    knowledge_store.init_table()
     knowledge_store.add_document(
         "test/strategy.md", "strategy_rules", "1.0", "Test Strategy Doc",
         "The reward to risk ratio must be at least three to one for an A+ rating.",
     )
-    memory_store.init_table()
     memory_store.create_memory(
         MemoryCategory.TRADE_LESSON, "User repeatedly enters too early before the retracement completes.",
     )
@@ -261,12 +258,10 @@ def test_market_intelligence_tool_works_alongside_every_other_evidence_source(mo
     from ai.memory import store as memory_store
     from ai.memory.models import MemoryCategory
 
-    knowledge_store.init_table()
     knowledge_store.add_document(
         "test/strategy.md", "strategy_rules", "1.0", "Test Strategy Doc",
         "The reward to risk ratio must be at least three to one for an A+ rating.",
     )
-    memory_store.init_table()
     memory_store.create_memory(
         MemoryCategory.TRADE_LESSON, "User repeatedly enters too early before the retracement completes.",
     )

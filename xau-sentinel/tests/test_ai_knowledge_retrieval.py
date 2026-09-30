@@ -8,7 +8,6 @@ from ai.knowledge import retrieval, store
 
 @pytest.fixture(autouse=True)
 def _knowledge_table(temp_db):
-    store.init_table()
     return temp_db
 
 

@@ -8,7 +8,7 @@ from ai.trade_review.models import Outcome, StrategyAlignment, TradeReview
 
 @pytest.fixture(autouse=True)
 def _init(temp_db):
-    store.init_table()
+    return temp_db
 
 
 def _review(**overrides):

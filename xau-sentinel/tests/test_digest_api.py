@@ -13,7 +13,6 @@ from api.main import app
 
 @pytest.fixture
 def api_client(temp_db):
-    digest_store.init_table()
     with TestClient(app) as client:
         yield client
 
@@ -56,12 +55,15 @@ def test_preview_400s_for_an_unknown_digest_type(api_client):
 
 
 def test_preview_never_writes_to_digest_deliveries_or_any_journal_table(api_client, closed_trade_id):
+    from sqlalchemy import text
     from journal.database import get_connection
 
     def _snapshot():
         with get_connection() as conn:
-            trade = dict(conn.execute("SELECT * FROM trades WHERE id = ?", (closed_trade_id,)).fetchone())
-            deliveries = conn.execute("SELECT * FROM digest_deliveries").fetchall()
+            trade = dict(conn.execute(
+                text("SELECT * FROM trades WHERE id = :id"), {"id": closed_trade_id}
+            ).mappings().fetchone())
+            deliveries = conn.execute(text("SELECT * FROM digest_deliveries")).mappings().fetchall()
             return trade, [dict(r) for r in deliveries]
 
     before = _snapshot()

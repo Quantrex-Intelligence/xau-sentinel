@@ -1,5 +1,6 @@
 """Shared fixtures and synthetic-candle helpers for the XAU Sentinel test suite."""
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -181,14 +182,57 @@ def _clear_market_intelligence_cache():
     cache.clear()
 
 
+@pytest.fixture(scope="session")
+def _migrated_database():
+    """DEP-002: applies every Alembic migration to config.DATABASE_URL
+    exactly once per test session (a no-op if already at head) -- the
+    Postgres equivalent of the old per-test init_db(). Only tests that
+    request `temp_db` (directly or via another fixture) pay this cost, the
+    same separation the old sqlite-file fixture gave non-DB tests.
+
+    Deliberately built WITHOUT pointing Config at alembic.ini: passing a
+    config file makes alembic/env.py call logging.config.fileConfig() on
+    it, which defaults to disable_existing_loggers=True and silently kills
+    every logger already configured elsewhere in the process (e.g.
+    ai.monitoring.engine's) for the rest of the test session -- caplog then
+    captures nothing from them. Setting script_location/sqlalchemy.url
+    programmatically gets the same migration run without that side effect."""
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option("script_location", str(Path(__file__).resolve().parent.parent / "alembic"))
+    command.upgrade(cfg, "head")
+
+
 @pytest.fixture
-def temp_db(monkeypatch, tmp_path):
-    """Points the journal DB at an isolated per-test sqlite file."""
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr(config, "DB_PATH", str(db_path))
-    from journal.database import init_db
-    init_db()
-    return str(db_path)
+def temp_db(_migrated_database):
+    """Isolates this test's DB writes inside one outer transaction against
+    the shared Postgres test database, rolled back at teardown -- replaces
+    the old per-test SQLite file (Postgres has no equivalent cheap per-test
+    throwaway file). journal.database.get_connection() is redirected (via
+    its _test_connection ContextVar) to reuse this one Connection instead of
+    checking a fresh one out of the pool.
+
+    A real SQL COMMIT always finalizes the whole transaction, savepoints or
+    not -- so application code's own `conn.commit()` calls (each already
+    scoped to one SAVEPOINT by get_connection() itself, see its docstring)
+    are neutered to a no-op here at the instance level, the only way to let
+    a unit of work "finish" from the app's point of view without it ever
+    reaching the real database until the fixture's own rollback discards
+    everything at teardown."""
+    from journal import database
+
+    connection = database.engine.connect()
+    outer_txn = connection.begin()
+    connection.commit = lambda: None
+    token = database._test_connection.set(connection)
+    try:
+        yield connection
+    finally:
+        database._test_connection.reset(token)
+        outer_txn.rollback()
+        connection.close()
 
 
 @pytest.fixture(autouse=True)

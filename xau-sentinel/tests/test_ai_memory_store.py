@@ -6,7 +6,6 @@ from ai.memory.models import MemoryCategory, MemoryStatus
 
 
 def test_create_memory_returns_a_record_with_hardcoded_source(temp_db):
-    store.init_table()
     record = store.create_memory(MemoryCategory.TRADE_LESSON, "Entered too early before the retracement.")
     assert record.source == "user_confirmed"
     assert record.status == MemoryStatus.ACTIVE
@@ -24,12 +23,10 @@ def test_create_memory_ignores_any_source_a_caller_tries_to_pass():
 
 
 def test_get_memory_returns_none_for_unknown_id(temp_db):
-    store.init_table()
     assert store.get_memory(999999) is None
 
 
 def test_list_memories_excludes_archived_by_default(temp_db):
-    store.init_table()
     active = store.create_memory(MemoryCategory.USER_PREFERENCE, "Prefers London session setups.")
     archived = store.create_memory(MemoryCategory.USER_PREFERENCE, "Old preference, no longer true.")
     store.archive_memory(archived.id)
@@ -41,7 +38,6 @@ def test_list_memories_excludes_archived_by_default(temp_db):
 
 
 def test_list_memories_include_archived_true_returns_both(temp_db):
-    store.init_table()
     active = store.create_memory(MemoryCategory.USER_PREFERENCE, "Keep this one.")
     archived = store.create_memory(MemoryCategory.USER_PREFERENCE, "Archive this one.")
     store.archive_memory(archived.id)
@@ -52,7 +48,6 @@ def test_list_memories_include_archived_true_returns_both(temp_db):
 
 
 def test_list_memories_filters_by_category(temp_db):
-    store.init_table()
     store.create_memory(MemoryCategory.TRADE_LESSON, "Lesson one.")
     store.create_memory(MemoryCategory.USER_PREFERENCE, "Preference one.")
 
@@ -62,7 +57,6 @@ def test_list_memories_filters_by_category(temp_db):
 
 
 def test_update_memory_changes_content_and_bumps_updated_at(temp_db):
-    store.init_table()
     record = store.create_memory(MemoryCategory.TRADE_LESSON, "Original content.")
     updated = store.update_memory(record.id, content="Revised content.")
     assert updated.content == "Revised content."
@@ -70,12 +64,10 @@ def test_update_memory_changes_content_and_bumps_updated_at(temp_db):
 
 
 def test_update_memory_unknown_id_returns_none(temp_db):
-    store.init_table()
     assert store.update_memory(999999, content="anything") is None
 
 
 def test_update_memory_without_content_keeps_existing_content(temp_db):
-    store.init_table()
     record = store.create_memory(MemoryCategory.TRADE_LESSON, "Keep me.", strategy_version="v1")
     updated = store.update_memory(record.id, strategy_version="v2")
     assert updated.content == "Keep me."
@@ -83,7 +75,6 @@ def test_update_memory_without_content_keeps_existing_content(temp_db):
 
 
 def test_archive_memory_sets_status_and_is_idempotent(temp_db):
-    store.init_table()
     record = store.create_memory(MemoryCategory.PATTERN_OBSERVATION, "Recurring late entries on Fridays.")
     archived_once = store.archive_memory(record.id)
     assert archived_once.status == MemoryStatus.ARCHIVED
@@ -92,7 +83,6 @@ def test_archive_memory_sets_status_and_is_idempotent(temp_db):
 
 
 def test_archive_memory_unknown_id_returns_none(temp_db):
-    store.init_table()
     assert store.archive_memory(999999) is None
 
 

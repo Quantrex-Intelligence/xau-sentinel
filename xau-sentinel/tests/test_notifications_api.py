@@ -17,7 +17,6 @@ CHAT_ID = "987654321"
 
 @pytest.fixture
 def api_client(temp_db):
-    store.init_table()
     with TestClient(app) as client:
         yield client
 

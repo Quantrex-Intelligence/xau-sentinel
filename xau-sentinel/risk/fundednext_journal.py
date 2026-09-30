@@ -69,6 +69,9 @@ def save_snapshot(trade_id: int, status: FundedNextStatus, rules_daily_loss_pct:
 
 
 def get_snapshot(trade_id: int) -> Optional[dict]:
+    """Returns captured_at as an ISO 8601 string -- the pre-DEP-002 shape
+    callers (e.g. api/schemas.py's FundedNextContextOut.captured_at: str)
+    already expect, even though the column is now a real TIMESTAMPTZ."""
     with get_connection() as conn:
         row = conn.execute(
             select(fundednext_context)
@@ -76,4 +79,8 @@ def get_snapshot(trade_id: int) -> Optional[dict]:
             .order_by(fundednext_context.c.id.desc())
             .limit(1)
         ).mappings().fetchone()
-        return dict(row) if row else None
+        if row is None:
+            return None
+        result = dict(row)
+        result["captured_at"] = result["captured_at"].isoformat()
+        return result

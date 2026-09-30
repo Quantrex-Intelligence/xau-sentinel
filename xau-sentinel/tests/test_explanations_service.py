@@ -38,8 +38,7 @@ class _FailingProvider(BaseProvider):
 
 @pytest.fixture(autouse=True)
 def _init_tables(temp_db):
-    monitoring_store.init_table()
-    store.init_table()
+    return temp_db
 
 
 @pytest.fixture(autouse=True)

@@ -9,7 +9,7 @@ from ai.digest import store
 
 @pytest.fixture(autouse=True)
 def _init(temp_db):
-    store.init_table()
+    return temp_db
 
 
 def test_record_sent_returns_true_on_first_insert():

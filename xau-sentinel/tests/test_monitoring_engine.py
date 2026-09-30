@@ -32,7 +32,6 @@ def _fn_status(safety_level=SafetyLevel.SAFE):
 
 @pytest.fixture(autouse=True)
 def _isolated_monitoring_table(temp_db):
-    store.init_table()
     return temp_db
 
 
@@ -448,10 +447,11 @@ def test_baseline_persistence_failure_keeps_the_in_memory_baseline(monkeypatch, 
 
 
 def test_unreadable_persisted_baseline_falls_back_to_a_fresh_baseline(monkeypatch):
+    from sqlalchemy import text
     from journal.database import get_connection
     engine.run_monitoring_cycle()
     with get_connection() as conn:
-        conn.execute("UPDATE monitoring_baseline SET snapshot = '{not json'")
+        conn.execute(text("UPDATE monitoring_baseline SET snapshot = '{not json'"))
         conn.commit()
     engine.reset_state()
     monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))

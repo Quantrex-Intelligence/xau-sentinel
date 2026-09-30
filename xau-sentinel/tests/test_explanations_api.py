@@ -24,8 +24,6 @@ class _RecordingProvider(BaseProvider):
 
 @pytest.fixture
 def api_client(temp_db):
-    monitoring_store.init_table()
-    store.init_table()
     with TestClient(app) as client:
         yield client
 

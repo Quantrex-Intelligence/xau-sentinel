@@ -3,18 +3,13 @@ persistence, missing-data handling, and — the core requirement — that a
 saved snapshot is immutable once written."""
 import pytest
 
-from journal.database import init_db
 from journal import trades as trades_repo
-from risk.fundednext_journal import get_snapshot, init_table, save_snapshot
+from risk.fundednext_journal import get_snapshot, save_snapshot
 from risk.models import AccountType, FundedNextStatus, Phase, SafetyLevel
 
 
 @pytest.fixture
 def fn_journal_db(temp_db):
-    """temp_db already isolates config.DB_PATH; this also creates the new
-    fundednext_context table in that same isolated file."""
-    init_db()
-    init_table()
     return temp_db
 
 

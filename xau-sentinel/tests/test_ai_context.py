@@ -10,17 +10,17 @@ import config
 from ai import context
 from journal import trades as trades_repo
 from mt5 import account as mt5_account, market_data
-from risk.fundednext_journal import init_table as init_fundednext_table, save_snapshot as save_fn_snapshot
+from risk.fundednext_journal import save_snapshot as save_fn_snapshot
 from risk.models import AccountSnapshot, AccountType, FundedNextStatus, Phase, SafetyLevel
 
 
 @pytest.fixture(autouse=True)
 def _fundednext_table(temp_db):
-    """build_trade_section() reads the fundednext_context table; temp_db
-    alone only creates the frozen Stage 1 schema (journal/database.py), so
-    every test in this file also needs risk.fundednext_journal's own
-    migration — exactly what api/main.py's lifespan does for the real app."""
-    init_fundednext_table()
+    """build_trade_section() reads the fundednext_context table -- DEP-002:
+    every table (this one included) already exists via Alembic (applied
+    once per session by temp_db's own _migrated_database dependency), so
+    this fixture now exists only to pull `temp_db` isolation into every
+    test in this file, even ones that don't request it directly."""
 
 
 def test_market_and_setup_sections_available_in_mock_mode():

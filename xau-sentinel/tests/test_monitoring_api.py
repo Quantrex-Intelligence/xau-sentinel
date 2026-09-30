@@ -16,7 +16,6 @@ from api.main import app
 
 @pytest.fixture
 def api_client(temp_db):
-    store.init_table()
     with TestClient(app) as client:
         yield client
 

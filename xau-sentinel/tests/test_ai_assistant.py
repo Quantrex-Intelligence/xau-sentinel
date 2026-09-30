@@ -37,7 +37,6 @@ class _FailingProvider(BaseProvider):
 
 @pytest.fixture(autouse=True)
 def _ai_table(temp_db):
-    assistant.init_table()
     return temp_db
 
 
@@ -170,7 +169,6 @@ def test_knowledge_used_is_empty_list_when_knowledge_base_has_no_relevant_result
 
 def test_knowledge_used_is_populated_when_a_relevant_document_exists(monkeypatch, temp_db):
     from ai.knowledge import store
-    store.init_table()
     store.add_document(
         "test/strategy.md", "strategy_rules", "1.0", "Test Strategy Doc",
         "The reward to risk ratio must be at least three to one for an A+ rating.",
@@ -210,7 +208,6 @@ def test_memory_used_defaults_to_empty_list_when_no_memory_exists(monkeypatch):
 def test_memory_used_is_populated_when_a_relevant_memory_exists(monkeypatch, temp_db):
     from ai.memory import store
     from ai.memory.models import MemoryCategory
-    store.init_table()
     store.create_memory(MemoryCategory.TRADE_LESSON,
                          "User repeatedly enters too early before the retracement completes.")
     _use_provider(monkeypatch, _RecordingProvider())

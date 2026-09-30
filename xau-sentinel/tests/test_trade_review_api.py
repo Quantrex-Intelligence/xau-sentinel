@@ -24,9 +24,6 @@ class _RecordingProvider(BaseProvider):
 
 @pytest.fixture
 def api_client(temp_db):
-    store.init_table()
-    from risk.fundednext_journal import init_table as init_fundednext_context_table
-    init_fundednext_context_table()
     with TestClient(app) as client:
         yield client
 
@@ -106,17 +103,20 @@ def test_get_route_never_calls_the_llm_structurally():
 # ---------------------------------------------------------------------------
 
 def test_generating_a_review_never_modifies_the_underlying_trade(api_client, closed_trade_id):
+    from sqlalchemy import text
     from journal.database import get_connection
 
     def _snapshot_rows():
         with get_connection() as conn:
-            trade = dict(conn.execute("SELECT * FROM trades WHERE id = ?", (closed_trade_id,)).fetchone())
+            trade = dict(conn.execute(
+                text("SELECT * FROM trades WHERE id = :id"), {"id": closed_trade_id}
+            ).mappings().fetchone())
             context = conn.execute(
-                "SELECT * FROM journal_context WHERE trade_id = ?", (closed_trade_id,)
-            ).fetchone()
+                text("SELECT * FROM journal_context WHERE trade_id = :id"), {"id": closed_trade_id}
+            ).mappings().fetchone()
             fn = conn.execute(
-                "SELECT * FROM fundednext_context WHERE trade_id = ?", (closed_trade_id,)
-            ).fetchone()
+                text("SELECT * FROM fundednext_context WHERE trade_id = :id"), {"id": closed_trade_id}
+            ).mappings().fetchone()
             return trade, dict(context) if context else None, dict(fn) if fn else None
 
     before = _snapshot_rows()

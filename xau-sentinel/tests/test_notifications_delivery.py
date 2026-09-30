@@ -19,8 +19,7 @@ from ai.notifications.models import DeliveryResult, DeliveryStatus
 
 @pytest.fixture(autouse=True)
 def _init_tables(temp_db):
-    monitoring_store.init_table()
-    store.init_table()
+    return temp_db
 
 
 def _seed_monitoring_alert(dedup_key="k1", **overrides):
@@ -250,12 +249,13 @@ def test_config_error_skips_the_cycle_without_marking_deliveries_failed(monkeypa
 def test_purged_underlying_alert_is_skipped_not_crashed(_mock_provider):
     """If ALERT_RETENTION_DAYS purged the monitoring_alerts row between
     discovery and attempt, the delivery worker must degrade, not crash."""
+    from sqlalchemy import text
     from journal.database import get_connection
 
     _seed_monitoring_alert()
     delivery.discover_new_alerts()
     with get_connection() as conn:
-        conn.execute("DELETE FROM monitoring_alerts")
+        conn.execute(text("DELETE FROM monitoring_alerts"))
         conn.commit()
 
     attempted = delivery.attempt_deliveries()

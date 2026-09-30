@@ -14,12 +14,6 @@ from api.main import app
 
 @pytest.fixture
 def api_client(temp_db):
-    from risk.fundednext_journal import init_table as init_fundednext_context_table
-    from ai.monitoring.store import init_table as init_monitoring_table
-    from ai.memory.store import init_table as init_memory_table
-    init_fundednext_context_table()
-    init_monitoring_table()
-    init_memory_table()
     with TestClient(app) as client:
         yield client
 
@@ -71,19 +65,22 @@ def test_strategy_analytics_routes_never_write_anything_structurally():
 # ---------------------------------------------------------------------------
 
 def test_hitting_both_endpoints_never_modifies_source_tables(api_client, closed_trade_id):
+    from sqlalchemy import text
     from journal.database import get_connection
 
     def _snapshot():
         with get_connection() as conn:
-            trade = dict(conn.execute("SELECT * FROM trades WHERE id = ?", (closed_trade_id,)).fetchone())
+            trade = dict(conn.execute(
+                text("SELECT * FROM trades WHERE id = :id"), {"id": closed_trade_id}
+            ).mappings().fetchone())
             context = conn.execute(
-                "SELECT * FROM journal_context WHERE trade_id = ?", (closed_trade_id,)
-            ).fetchone()
+                text("SELECT * FROM journal_context WHERE trade_id = :id"), {"id": closed_trade_id}
+            ).mappings().fetchone()
             fn = conn.execute(
-                "SELECT * FROM fundednext_context WHERE trade_id = ?", (closed_trade_id,)
-            ).fetchone()
-            alerts = conn.execute("SELECT * FROM monitoring_alerts").fetchall()
-            memories = conn.execute("SELECT * FROM memory_records").fetchall()
+                text("SELECT * FROM fundednext_context WHERE trade_id = :id"), {"id": closed_trade_id}
+            ).mappings().fetchone()
+            alerts = conn.execute(text("SELECT * FROM monitoring_alerts")).mappings().fetchall()
+            memories = conn.execute(text("SELECT * FROM memory_records")).mappings().fetchall()
             return (
                 trade, dict(context) if context else None, dict(fn) if fn else None,
                 [dict(r) for r in alerts], [dict(r) for r in memories],

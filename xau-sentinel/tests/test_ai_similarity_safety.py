@@ -15,7 +15,6 @@ import ai.strategy.evaluator as evaluator_mod
 
 @pytest.fixture(autouse=True)
 def _ai_table(temp_db):
-    assistant.init_table()
     return temp_db
 
 

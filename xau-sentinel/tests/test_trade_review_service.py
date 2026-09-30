@@ -34,9 +34,6 @@ class _FailingProvider(BaseProvider):
 
 @pytest.fixture(autouse=True)
 def _init_and_seed(temp_db, monkeypatch):
-    store.init_table()
-    from risk.fundednext_journal import init_table as init_fundednext_context_table
-    init_fundednext_context_table()
     from journal import trades as trades_repo
     trade_id = trades_repo.create_trade(
         {"trade_date": "2026-01-01", "trade_time": "10:00", "symbol": "XAUUSD", "direction": "BUY",

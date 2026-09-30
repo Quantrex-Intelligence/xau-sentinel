@@ -14,7 +14,6 @@ from analysis.regime import classify_regime
 from analysis.zones import compute_zones, current_session
 from analysis.liquidity import detect_sweeps, detect_equal_levels
 from analysis.setup import detect_setup
-from journal.database import init_db
 from journal import trades as trades_repo
 from ui import dashboard
 from ui.journal import render_journal_page
@@ -22,7 +21,9 @@ from ui.journal import render_journal_page
 st.set_page_config(page_title="XAU Sentinel", page_icon="📈", layout="wide")
 dashboard.inject_css()
 
-init_db()
+# DEP-002: schema is created/altered exclusively via `alembic upgrade head`
+# -- run it once against DATABASE_URL before starting Streamlit (the API
+# container does this automatically on start; see Dockerfile.api).
 
 if config.IS_LIVE and not connection.is_connected():
     connection.connect()

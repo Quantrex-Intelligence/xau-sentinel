@@ -15,20 +15,10 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 import config
 import log_safety
-from ai.assistant import init_table as init_ai_messages_table
 from ai.digest import service as digest_service
-from ai.digest.store import init_table as init_digest_table
 from ai.knowledge.seed_documents import seed_if_empty as seed_knowledge_if_empty
-from ai.knowledge.store import init_table as init_knowledge_tables
-from ai.memory.store import init_table as init_memory_table
 from ai.monitoring import engine as monitoring_engine
-from ai.monitoring.store import init_table as init_monitoring_table
-from ai.explanations.store import init_table as init_explanations_table
 from ai.notifications import delivery as notification_delivery
-from ai.notifications.store import init_table as init_notifications_table
-from ai.trade_review.store import init_table as init_trade_review_table
-from journal.database import init_db
-from risk.fundednext_journal import init_table as init_fundednext_context_table
 from api.routes import (
     ai, alerts, digest, explanations, fundednext, journal, knowledge, market, market_intelligence, memory,
     monitoring, notifications, risk, settings, setup, similarity, strategy, strategy_analytics, trade_review,
@@ -145,17 +135,11 @@ class AuthMiddleware:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    init_db()
-    init_fundednext_context_table()
-    init_ai_messages_table()
-    init_knowledge_tables()
+    # DEP-002: schema is created/altered exclusively via `alembic upgrade
+    # head`, run before this process starts (see Dockerfile.api's CMD) --
+    # every table this app touches is guaranteed to already exist by the
+    # time _lifespan runs, so there is nothing left to init here.
     seed_knowledge_if_empty()
-    init_memory_table()
-    init_monitoring_table()
-    init_notifications_table()
-    init_explanations_table()
-    init_trade_review_table()
-    init_digest_table()
 
     task = None
     if config.MONITORING_ENABLED:

@@ -4,6 +4,7 @@ diff), acknowledge/acknowledge-all, filtering, and retention purge."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import text
 
 from ai.monitoring import store
 from ai.monitoring.models import AlertEvent, AlertType, Severity
@@ -11,7 +12,7 @@ from ai.monitoring.models import AlertEvent, AlertType, Severity
 
 @pytest.fixture(autouse=True)
 def _init(temp_db):
-    store.init_table()
+    return temp_db
 
 
 def _alert(**overrides):
@@ -119,9 +120,10 @@ def test_purge_older_than_removes_old_rows_only():
     old_time = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
     with get_connection() as conn:
         conn.execute(
-            """INSERT INTO monitoring_alerts (alert_type, severity, title, message, symbol, payload,
-               dedup_key, acknowledged, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)""",
-            ("SETUP_STATE_CHANGED", "INFO", "old", "old alert", "XAUUSD", "{}", "old-key", old_time),
+            text("""INSERT INTO monitoring_alerts (alert_type, severity, title, message, symbol, payload,
+               dedup_key, acknowledged, created_at) VALUES (:t, :s, :title, :msg, :sym, :payload, :dk, false, :ca)"""),
+            {"t": "SETUP_STATE_CHANGED", "s": "INFO", "title": "old", "msg": "old alert", "sym": "XAUUSD",
+             "payload": "{}", "dk": "old-key", "ca": old_time},
         )
         conn.commit()
 
@@ -161,7 +163,7 @@ def test_baseline_round_trips_every_snapshot_field_including_optional_ones():
     store.save_baseline(none_snap)  # upsert: still exactly one row
     assert store.load_baseline()[0] == none_snap
     with get_connection() as conn:
-        assert conn.execute("SELECT COUNT(*) AS n FROM monitoring_baseline").fetchone()["n"] == 1
+        assert conn.execute(text("SELECT COUNT(*) AS n FROM monitoring_baseline")).mappings().fetchone()["n"] == 1
 
 
 def test_load_baseline_is_none_when_empty_or_missing_a_required_field():
@@ -170,7 +172,9 @@ def test_load_baseline_is_none_when_empty_or_missing_a_required_field():
 
     assert store.load_baseline() is None
     with get_connection() as conn:
-        conn.execute("INSERT INTO monitoring_baseline (id, snapshot, saved_at) VALUES (1, ?, ?)",
-                     (json.dumps({"setup_state": "VALID"}), "2026-01-01T00:00:00+00:00"))
+        conn.execute(
+            text("INSERT INTO monitoring_baseline (id, snapshot, saved_at) VALUES (1, :snap, :saved_at)"),
+            {"snap": json.dumps({"setup_state": "VALID"}), "saved_at": "2026-01-01T00:00:00+00:00"},
+        )
         conn.commit()
     assert store.load_baseline() is None

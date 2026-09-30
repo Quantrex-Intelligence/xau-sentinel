@@ -8,7 +8,7 @@ from ai.notifications.models import DeliveryStatus
 
 @pytest.fixture(autouse=True)
 def _init(temp_db):
-    store.init_table()
+    return temp_db
 
 
 def test_create_pending_persists_a_new_row():

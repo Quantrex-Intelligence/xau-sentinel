@@ -9,7 +9,7 @@ from ai.explanations.models import AlertExplanation
 
 @pytest.fixture(autouse=True)
 def _init(temp_db):
-    store.init_table()
+    return temp_db
 
 
 def _explanation(**overrides):
