@@ -20,6 +20,7 @@ from risk.rules import RULES
 def _fixed_thresholds(monkeypatch):
     monkeypatch.setattr(config, "FUNDEDNEXT_WARNING_THRESHOLD_PCT", 0.5)
     monkeypatch.setattr(config, "FUNDEDNEXT_CRITICAL_THRESHOLD_PCT", 0.8)
+    monkeypatch.setattr(config, "FUNDEDNEXT_BALANCE_MISMATCH_TOLERANCE_PCT", 0.5)
     monkeypatch.setattr(config, "ACCOUNT_BALANCE", 100_000.0)
 
 
@@ -199,6 +200,37 @@ def test_live_disconnected_mode_via_real_get_account_snapshot(monkeypatch):
     status = compute_status(AccountType.STELLAR_2STEP, Phase.CHALLENGE)
     assert status.data_available is False
     assert status.safety_level == SafetyLevel.UNKNOWN
+
+
+def test_mismatched_account_balance_returns_unknown_not_fabricated(monkeypatch):
+    """OP-002 (docs/validation/OPERATIONAL_ISSUES.md): a live check found the
+    connected MT5 account's real balance ($100,000) didn't match the
+    configured ACCOUNT_BALANCE ($50,000, a 2x mismatch) — before this fix,
+    progress_to_target_pct silently read 1250%. Reproduces that exact
+    real-world ratio."""
+    _fixed_server_date(monkeypatch, date(2026, 1, 5))
+    monkeypatch.setattr(config, "ACCOUNT_BALANCE", 50_000.0)
+    _mock_snapshot(monkeypatch, balance=100_000, equity=100_000, source="live")
+
+    status = compute_status(AccountType.STELLAR_2STEP, Phase.CHALLENGE)
+
+    assert status.data_available is False
+    assert status.safety_level == SafetyLevel.UNKNOWN
+    assert "ACCOUNT_BALANCE" in status.reason
+    assert status.progress_to_target_pct is None
+
+
+def test_in_tolerance_balance_change_from_real_trading_is_not_flagged_as_mismatched(monkeypatch):
+    """The new OP-002 check must not trip on a real trading swing — only on
+    an account that plainly isn't the configured one."""
+    _fixed_server_date(monkeypatch, date(2026, 1, 5))
+    _mock_snapshot(monkeypatch, balance=104_000, equity=104_000)  # ACCOUNT_BALANCE=100_000 (fixture), a 4% move
+    _mock_history(monkeypatch, [])
+
+    status = compute_status(AccountType.STELLAR_2STEP, Phase.CHALLENGE)
+
+    assert status.data_available is True
+    assert status.progress_to_target_pct == 50.0  # unchanged from the pre-existing behavior
 
 
 # ---------------------------------------------------------------------------

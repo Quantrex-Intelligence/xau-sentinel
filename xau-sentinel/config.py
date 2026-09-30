@@ -70,6 +70,10 @@ DATA_STALE_SECONDS = int(os.getenv("DATA_STALE_SECONDS", 120))
 FUNDEDNEXT_SERVER_TIMEZONE = os.getenv("FUNDEDNEXT_SERVER_TIMEZONE", "Europe/Nicosia").strip()
 FUNDEDNEXT_WARNING_THRESHOLD_PCT = float(os.getenv("FUNDEDNEXT_WARNING_THRESHOLD_PCT", 0.5))
 FUNDEDNEXT_CRITICAL_THRESHOLD_PCT = float(os.getenv("FUNDEDNEXT_CRITICAL_THRESHOLD_PCT", 0.8))
+# OP-002 (docs/validation/OPERATIONAL_ISSUES.md): how far the connected MT5
+# account's balance may diverge from ACCOUNT_BALANCE before compute_status()
+# treats it as data it can't trust, rather than a real trading swing.
+FUNDEDNEXT_BALANCE_MISMATCH_TOLERANCE_PCT = float(os.getenv("FUNDEDNEXT_BALANCE_MISMATCH_TOLERANCE_PCT", 0.5))
 
 
 # --- AI Assistant (Stage 3) — analyst/explainer over the engine's own

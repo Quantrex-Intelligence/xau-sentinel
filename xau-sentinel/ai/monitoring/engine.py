@@ -35,7 +35,7 @@ from ai.market_intelligence.quality import build_event_risk_context, build_intel
 from ai.monitoring import rules, store
 from ai.monitoring.models import AlertEvent, MonitoringSnapshot, RawEvaluationBundle
 from ai.strategy.evaluator import evaluate_deterministic
-from mt5 import market_data
+from mt5 import connection, market_data
 from risk import settings_store
 from risk.fundednext import compute_status
 from risk.models import AccountType, Phase
@@ -101,6 +101,15 @@ def _now() -> datetime:
 
 
 def _build_bundle(now: datetime) -> RawEvaluationBundle:
+    # OP-001 (docs/validation/OPERATIONAL_ISSUES.md): the monitoring loop is
+    # its own independent MT5 consumer and previously relied entirely on a
+    # UI/API request having connected it first (app.py / api/snapshot.py's
+    # own copy of this same idiom) — on a cold start with nobody using the
+    # dashboard, every cycle failed with "MT5 not connected" indefinitely.
+    # Checked every cycle, not just once at startup, so a genuine mid-session
+    # disconnect self-heals too, not only the first-cycle case.
+    if config.IS_LIVE and not connection.is_connected():
+        connection.connect()
     candles = market_data.get_all_candles(300)
     # Stage 23B: the same cycle `now` evaluate_deterministic() gets below,
     # so both engines judge candle closure/staleness against one clock.

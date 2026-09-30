@@ -7,9 +7,11 @@ exactly the right alert, an unchanged third cycle produces zero (in-memory
 dedup), and the engine never touches an LLM provider."""
 import inspect
 from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock
 
 import pytest
 
+import config
 from ai.monitoring import engine, store
 from risk.models import AccountType, FundedNextStatus, Phase, SafetyLevel
 from tests.conftest import flat_candles, make_candles
@@ -62,6 +64,37 @@ def test_unchanged_second_cycle_creates_no_alerts():
     engine.run_monitoring_cycle()
     created = engine.run_monitoring_cycle()
     assert created == []
+
+
+def test_live_mode_connects_mt5_before_fetching_candles_when_not_already_connected(monkeypatch):
+    """OP-001 (docs/validation/OPERATIONAL_ISSUES.md): a cold start in
+    MODE=live previously never connected MT5 on its own — only a UI/API
+    request did, via app.py's/api/snapshot.py's own copy of this same idiom.
+    Proves the fix by asserting connect() is actually called, not just that
+    the cycle doesn't crash (get_all_candles is itself mocked above, so a
+    missing connect() call wouldn't fail this test any other way)."""
+    monkeypatch.setattr(config, "IS_LIVE", True)
+    monkeypatch.setattr(engine.connection, "is_connected", lambda: False)
+    connect_mock = Mock()
+    monkeypatch.setattr(engine.connection, "connect", connect_mock)
+
+    engine.run_monitoring_cycle()
+
+    connect_mock.assert_called_once()
+
+
+def test_live_mode_does_not_reconnect_mt5_when_already_connected(monkeypatch):
+    """The other half of OP-001's fix: connect() shouldn't be called every
+    cycle once already connected (connect() itself isn't a no-op — it
+    re-runs mt5.initialize()/login() every call per mt5/connection.py)."""
+    monkeypatch.setattr(config, "IS_LIVE", True)
+    monkeypatch.setattr(engine.connection, "is_connected", lambda: True)
+    connect_mock = Mock()
+    monkeypatch.setattr(engine.connection, "connect", connect_mock)
+
+    engine.run_monitoring_cycle()
+
+    connect_mock.assert_not_called()
 
 
 def test_risk_status_transition_creates_exactly_one_alert(monkeypatch):

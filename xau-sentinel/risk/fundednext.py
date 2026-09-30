@@ -24,6 +24,24 @@ def compute_status(account_type: AccountType, phase: Phase, consistency_enabled:
             reason=snapshot.error or "Account data unavailable.",
         )
 
+    # OP-002 (docs/validation/OPERATIONAL_ISSUES.md): every figure below is
+    # computed relative to config.ACCOUNT_BALANCE, but nothing previously
+    # checked that the connected account is even approximately that size —
+    # a live check found a connected demo account 2x the configured balance
+    # produced a silently nonsensical progress_to_target_pct (1250%). A 50%
+    # tolerance is well outside any real trading swing on these accounts
+    # (max loss/profit-target rules top out around 8-20%) but catches a
+    # genuinely different account. Checked before any downstream math runs,
+    # since day_start_balance/daily_loss_floor/max_loss_floor/
+    # progress_to_target_pct all share this same initial_balance input.
+    if abs(snapshot.balance - initial_balance) > initial_balance * config.FUNDEDNEXT_BALANCE_MISMATCH_TOLERANCE_PCT:
+        return FundedNextStatus(
+            account_type=account_type, phase=phase, mode=mode, data_available=False,
+            safety_level=SafetyLevel.UNKNOWN,
+            reason=(f"Connected account balance ({snapshot.balance:,.2f}) does not match the configured "
+                    f"ACCOUNT_BALANCE ({initial_balance:,.2f}) — check the connected MT5 account or ACCOUNT_BALANCE."),
+        )
+
     # Daily-loss anchor: derived from today's REALIZED P/L, not from
     # "whatever balance was first observed today" (day_tracker.py's old
     # approach — see docs/validation/ISSUE_LOG.md VAL-002. A trade closed
