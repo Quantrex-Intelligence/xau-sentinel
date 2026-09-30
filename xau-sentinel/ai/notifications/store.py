@@ -12,6 +12,12 @@ ai/notifications/delivery.py's discovery step: a second discovery of the
 same alert is a silent no-op (INSERT OR IGNORE), never a duplicate row —
 the same "stable identity, not a random id" dedup contract
 ai/monitoring/store.py's dedup_key already uses.
+
+DEP-011: a second, separate table, `notification_test_sends`, records the
+last successful manual test send per provider (one row per provider name,
+upserted). It is deliberately NOT an alert_deliveries row: a test message
+is not an alert delivery, so last_success_at() keeps meaning "an alert was
+really delivered" and the test result is reported on its own.
 """
 import sqlite3
 from datetime import datetime, timezone
@@ -34,6 +40,10 @@ CREATE TABLE IF NOT EXISTS alert_deliveries (
     created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_deliveries_alert_channel ON alert_deliveries(alert_id, channel);
+CREATE TABLE IF NOT EXISTS notification_test_sends (
+    provider TEXT PRIMARY KEY,
+    last_success_at TEXT NOT NULL
+);
 """
 
 
@@ -157,3 +167,27 @@ def last_error_at(channel: str) -> Optional[str]:
             (channel,),
         ).fetchone()
     return row["ts"] if row else None
+
+
+def record_test_success(provider: str) -> str:
+    """DEP-011: stamps a successful manual test send for `provider` (the
+    provider's own name, e.g. "telegram" or "mock", so a mock-provider test
+    can never read as proof the real Telegram channel works). Returns the
+    stored timestamp."""
+    now = _now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO notification_test_sends (provider, last_success_at) VALUES (?, ?) "
+            "ON CONFLICT(provider) DO UPDATE SET last_success_at = excluded.last_success_at",
+            (provider, now),
+        )
+        conn.commit()
+    return now
+
+
+def last_test_success_at(provider: str) -> Optional[str]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT last_success_at FROM notification_test_sends WHERE provider = ?", (provider,),
+        ).fetchone()
+    return row["last_success_at"] if row else None
