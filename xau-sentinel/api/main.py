@@ -5,6 +5,7 @@ import asyncio
 import hmac
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from urllib.parse import parse_qs
 
@@ -25,6 +26,33 @@ from api.routes import (
 )
 from api import ws
 
+# OP-004 (docs/validation/OPERATIONAL_ISSUES.md): nothing in this app's real
+# startup path ever configured Python logging -- ai.monitoring.engine's own
+# "Monitoring loop started"/heartbeat lines (and every other logger.info()
+# call in the codebase) were silently swallowed in real usage, since a
+# logger with no configured handler only surfaces WARNING and above via
+# logging's last-resort handler. Only ERROR/EXCEPTION calls were ever
+# actually visible, which is why that gap wasn't caught earlier -- OP-004's
+# own unit test passed regardless, because pytest's caplog attaches its own
+# handler directly and bypasses this entirely.
+#
+# A plain StreamHandler to stdout, not a file handler: this only ever runs
+# inside a container, where the logging driver (docker-compose.yml's
+# json-file, max-size/max-file capped per DEP-013) already owns stdout/
+# stderr capture and rotation -- writing to a file here would duplicate
+# that, not add anything.
+#
+# Must run BEFORE log_safety.install(): raising the root level to INFO here
+# is exactly the scenario log_safety.py's own docstring warns about ("one
+# logging.basicConfig(level=logging.INFO) added later would silently start
+# writing the token to every log") -- install() runs right after and
+# re-pins httpx/httpcore to WARNING regardless of this root-level change,
+# closing that gap on the same line that opens it.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stdout,
+)
 log_safety.install()  # VAL-036: keep the Telegram bot token out of httpx's request logs
 
 logger = logging.getLogger(__name__)

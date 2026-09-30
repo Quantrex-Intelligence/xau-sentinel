@@ -141,6 +141,21 @@ def test_api_key_never_appears_in_any_ai_response_body(api_client, monkeypatch):
     assert secret not in chat_resp.text
 
 
+def test_api_key_never_appears_in_logs_during_a_normal_request(api_client, monkeypatch, caplog):
+    """A real (non-mock) provider init/failure path is the realistic place
+    a key could leak into logs — AiConfigOut's own get_config() route wraps
+    get_provider() in a try/except that logs nothing itself, but this
+    guards against a future change accidentally doing so."""
+    secret = "sk-super-secret-should-never-appear-in-any-log-record"
+    monkeypatch.setattr(config, "AI_PROVIDER", "anthropic")
+    monkeypatch.setattr(config, "AI_API_KEY", secret)
+
+    with caplog.at_level("DEBUG"):
+        api_client.get("/api/ai/config")
+
+    assert all(secret not in r.getMessage() for r in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # Stage 5: knowledge/RAG integration
 # ---------------------------------------------------------------------------

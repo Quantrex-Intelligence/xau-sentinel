@@ -79,3 +79,58 @@ def test_api_docs_env_var_parsing(monkeypatch):
     assert config._env_bool("API_DOCS_ENABLED", True) is False
     monkeypatch.delenv("API_DOCS_ENABLED")
     assert config._env_bool("API_DOCS_ENABLED", True) is True
+
+
+# ---------------------------------------------------------------------------
+# OP-004 follow-up: production logging actually reaches real output. The
+# original OP-004 fix (logger.info() calls in ai/monitoring/engine.py)
+# passed its own unit test but never appeared in real `docker compose logs`
+# output, because nothing in the app's real startup path had ever
+# configured a handler for logger.info() to reach anywhere -- caplog's own
+# handler attaches directly to the logger under test and bypasses that gap
+# entirely, which is exactly why it didn't catch this. These tests check
+# the actual global logging configuration api/main.py now applies at import
+# time, not a caplog-isolated view of it.
+# ---------------------------------------------------------------------------
+
+def test_httpx_and_httpcore_stay_pinned_to_warning_despite_the_new_root_config():
+    """VAL-036/log_safety.py's own documented risk: raising the root level
+    to INFO is exactly what would start leaking the Telegram bot token via
+    httpx's per-request URL log line, unless log_safety.install() (which
+    runs immediately after the new basicConfig() call in api/main.py) keeps
+    overriding these two loggers specifically."""
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
+
+
+def test_monitoring_logs_reach_real_stdout_in_a_fresh_process():
+    """The genuine, container-level version of this check. A same-process
+    test (asserting on logging.getLogger().handlers, or capturing via
+    capfd/caplog) is NOT trustworthy here and was tried first: pytest's own
+    logging plugin attaches a handler to the root logger before any test
+    module is ever imported, which makes api/main.py's
+    `logging.basicConfig(...)` call -- correctly documented as a no-op when
+    the root logger already has a handler -- silently do nothing *inside
+    pytest specifically*, regardless of whether the fix genuinely works in
+    a real process. Confirmed directly: `python -c "import logging;
+    print(logging.getLogger().handlers)"` outside pytest shows `[]`
+    (nothing configured yet, so basicConfig() will take effect), while the
+    same check from inside a pytest test shows a pre-existing handler.
+
+    A subprocess is a fresh Python process with no pytest anywhere in it --
+    the same starting state uvicorn itself has in the real container, and
+    the only way to actually prove `docker compose logs api` would show
+    this line."""
+    import subprocess
+    import sys as _sys
+    from pathlib import Path
+
+    marker = "OP-004-REAL-STDOUT-CHECK-3f1a9c"
+    result = subprocess.run(
+        [_sys.executable, "-c",
+         f"import api.main; import logging; logging.getLogger('ai.monitoring.engine').info({marker!r})"],
+        capture_output=True, text=True, timeout=30,
+        cwd=str(Path(__file__).resolve().parent.parent),
+    )
+    assert result.returncode == 0, f"subprocess failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+    assert marker in result.stdout, f"stdout={result.stdout!r} stderr={result.stderr!r}"
