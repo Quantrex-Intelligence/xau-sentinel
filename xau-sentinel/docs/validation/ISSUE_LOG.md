@@ -12,6 +12,7 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
 ## P0 — Critical
 
 ### VAL-001 — Both LLM safety-filter regexes miss almost every realistic unsafe phrasing
+- **Status: Resolved in Stage 19** (see this file's own commit in `git log` for the exact hash).
 - **Date:** 2026-09-29
 - **Subsystem:** `ai/prompts.py` (`contains_actionable_directive`, `contains_predictive_probability_claim`) — the deterministic backstop behind every AI-authored answer in the app (chat, A+ explanation, alert/trade explanation, trade review interpretation).
 - **Expected:** A trade-directive or a win-probability/forecast claim, however the model phrases it, gets caught and replaced with the safety-override message before it reaches the user.
@@ -25,6 +26,7 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
 - **Note:** This gap has never been exercised in practice because `AI_PROVIDER=mock` in every environment tested this session — the mock provider only echoes scripted text, never generates creative language. The risk is dormant until a real model is configured.
 
 ### VAL-002 — FundedNext daily-loss anchor can silently understate today's actual loss
+- **Status: Resolved in Stage 19** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `risk/day_tracker.py:20-28`, consumed by `risk/fundednext.py:28-34`.
 - **Expected:** The daily-loss floor is anchored to the account balance at server midnight (per the module's own docstring).
 - **Actual:** The anchor is whatever balance `compute_status()` first observes on a new server-calendar-day — if the app/monitoring loop wasn't running at exactly midnight (laptop asleep, app started late, MT5 disconnected), trades already closed earlier that day are silently absorbed into the anchor.
@@ -32,6 +34,7 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
 - **Potential fix:** Anchor as `current_balance − today's realized P&L so far` (from `get_daily_pnl_history`), or mark the anchor as unverified/flag a warning when it's first observed mid-day rather than at a clean day boundary.
 
 ### VAL-003 — MT5 candle/tick timestamps are labeled UTC but are actually broker server time
+- **Status: Resolved in Stage 19** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `mt5/market_data.py:55,78`.
 - **Expected:** Per `README.md`'s own claim ("All candle timestamps are handled in UTC internally") and the stale-check/sweep-window/session logic, which all assume UTC.
 - **Actual:** MT5 bar/tick times are tagged `utc=True` without any broker-offset correction, but the project's own `FUNDEDNEXT_SERVER_TIMEZONE` default (`Europe/Nicosia`, UTC+2/+3) documents that the broker is *not* UTC. On a non-UTC server: the staleness check (`is_stale()`) can compute a negative age and never fire on a frozen feed; the sweep-window expiry (`is_within_sweep_window`) can likewise never expire a stale candidate; Asian/London session masks and day boundaries (Previous Day High/Low, VWAP session) shift by the server's UTC offset.
@@ -85,6 +88,7 @@ the codebase at commit `837f8b5` (Stage 18) unless an entry's own Status line na
   what was implemented.
 
 ### VAL-005 — `float` NaN silently defeats every `is None` check on numeric journal fields
+- **Status: Resolved in Stage 19** (see this file's own commit in `git log` for the exact hash).
 - **Subsystem:** `ai/trade_review/patterns.py::closed_trades()` (Stage 16), consumed by `ai/trade_review/rules.py` (Stage 16), `ai/strategy_analytics/metrics.py` (Stage 17), `ai/digest/service.py` (Stage 18).
 - **Expected:** A trade with no recorded `planned_rr`/`r_multiple`/`duration_minutes` is treated as missing data (`None`) throughout the deterministic pipeline, per this project's own repeated "UNKNOWN, never assumed" convention.
 - **Actual:** `closed_trades()`'s `df.where(df.notnull(), None)` is a documented pandas no-op on `float64` columns — pandas re-coerces the replacement back to `NaN` rather than actually storing `None`, since a float64 array can't hold a Python `None`. **Verified by direct reproduction**: a DataFrame with a float column containing real `None`/`NaN` input, after `.where(df.notnull(), None)`, still reports `is None: False` for every row. Concretely, on the live dev DB, 4 of 8 trades in one dimension-breakdown group had `r_multiple = nan` (not `None`), which:
