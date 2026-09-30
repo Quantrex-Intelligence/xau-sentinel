@@ -278,6 +278,70 @@ def test_dedup_keys_are_stable_not_random():
     assert a1.dedup_key == a2.dedup_key
 
 
+def test_transition_dedup_keys_are_anchored_to_the_baseline_not_the_cycle():
+    """Stage 23B (VAL-019): a cycle that fails after inserting its alerts
+    but before the baseline advances is retried against the SAME previous
+    snapshot, at a later cycle timestamp. Every transition key must be
+    identical on that retry, so the store's UNIQUE index absorbs it instead
+    of storing (and sending) a duplicate."""
+    previous = _snapshot(setup_state="NO SETUP", aplus_rating="A+", risk_safety_level="SAFE",
+                         mi_overall_quality="AVAILABLE", timestamp="2026-01-01T00:00:00+00:00")
+    changed = dict(setup_state="DEVELOPING", aplus_rating="INVALID", risk_safety_level="WARNING",
+                   mi_overall_quality="UNAVAILABLE")
+    first = rules.evaluate_all(previous, _snapshot(timestamp="2026-01-01T00:00:20+00:00", **changed), _bundle())
+    retry = rules.evaluate_all(previous, _snapshot(timestamp="2026-01-01T00:00:40+00:00", **changed), _bundle())
+
+    assert {a.type for a in first} == {
+        AlertType.SETUP_STATE_CHANGED, AlertType.APLUS_SETUP_INVALIDATED,
+        AlertType.RISK_STATUS_CHANGED, AlertType.MARKET_INTELLIGENCE_QUALITY_CHANGED,
+    }
+    assert sorted(a.dedup_key for a in first) == sorted(a.dedup_key for a in retry)
+
+
+def test_same_transition_from_a_later_baseline_is_a_new_alert():
+    """The flip side of VAL-019: a genuine repeat (SAFE -> WARNING again,
+    after the baseline has moved on) must still be a distinct alert."""
+    earlier = rules.risk_status_changed(_snapshot(risk_safety_level="SAFE", timestamp="2026-01-01T00:00:00+00:00"),
+                                        _snapshot(risk_safety_level="WARNING"), _bundle())[0]
+    later = rules.risk_status_changed(_snapshot(risk_safety_level="SAFE", timestamp="2026-01-02T00:00:00+00:00"),
+                                      _snapshot(risk_safety_level="WARNING"), _bundle())[0]
+    assert earlier.dedup_key != later.dedup_key
+
+
+# ---------------------------------------------------------------------------
+# Stage 23B (VAL-023): a changed setup while already A+ is announced
+# ---------------------------------------------------------------------------
+
+def _aplus_bundle(direction="BUY", sweep="2026-01-01T00:00:00+00:00"):
+    return _bundle(strategy_result=_strategy_result(rating=Rating.A_PLUS, direction=direction,
+                                                    candidate_sweep_time=sweep))
+
+
+def test_aplus_setup_detected_fires_when_direction_flips_while_a_plus():
+    previous = _snapshot(aplus_rating="A+", aplus_direction="BUY", aplus_candidate_key="2026-01-01T00:00:00+00:00")
+    current = _snapshot(aplus_rating="A+", aplus_direction="SELL", aplus_candidate_key="2026-01-01T01:00:00+00:00")
+    alerts = rules.aplus_setup_detected(previous, current, _aplus_bundle("SELL", "2026-01-01T01:00:00+00:00"))
+    assert len(alerts) == 1
+    assert alerts[0].payload["direction"] == "SELL"
+    # Never also reported as an invalidation — the rating never left A+.
+    assert rules.aplus_setup_invalidated(previous, current, _aplus_bundle("SELL")) == []
+
+
+def test_aplus_setup_detected_fires_when_a_new_candidate_replaces_the_prior_one():
+    previous = _snapshot(aplus_rating="A+", aplus_direction="BUY", aplus_candidate_key="2026-01-01T00:00:00+00:00")
+    current = _snapshot(aplus_rating="A+", aplus_direction="BUY", aplus_candidate_key="2026-01-01T02:00:00+00:00")
+    old_alert = rules.aplus_setup_detected(_snapshot(aplus_rating="DEVELOPING"), previous, _aplus_bundle())[0]
+    alerts = rules.aplus_setup_detected(previous, current, _aplus_bundle(sweep="2026-01-01T02:00:00+00:00"))
+    assert len(alerts) == 1
+    assert alerts[0].dedup_key != old_alert.dedup_key
+
+
+def test_aplus_setup_detected_stays_quiet_for_the_same_a_plus_candidate():
+    previous = _snapshot(aplus_rating="A+", aplus_direction="BUY", aplus_candidate_key="2026-01-01T00:00:00+00:00")
+    current = _snapshot(aplus_rating="A+", aplus_direction="BUY", aplus_candidate_key="2026-01-01T00:00:00+00:00")
+    assert rules.aplus_setup_detected(previous, current, _aplus_bundle()) == []
+
+
 def test_no_rule_module_imports_an_llm_provider():
     """Structural guarantee: the LLM must not decide whether an alert
     condition exists — there is no code path from rules.py to any LLM

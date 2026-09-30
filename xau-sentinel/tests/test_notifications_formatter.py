@@ -73,6 +73,20 @@ def test_risk_status_changed_renders_metrics():
     assert "42.5" in text
     assert "Daily loss threshold breached." in text
     assert "🔴" in text  # CRITICAL severity
+    assert "Daily loss used: 42.5%" in text
+
+
+def test_risk_status_unknown_renders_unavailable_without_a_percent_sign():
+    """Stage 23B (VAL-035): an UNKNOWN risk status has no percentages, and
+    used to render as "Daily loss used: unavailable%"."""
+    alert = _alert(AlertType.RISK_STATUS_CHANGED, payload={
+        "previous_status": "SAFE", "current_status": "UNKNOWN",
+        "daily_loss_used_pct": None, "max_drawdown_used_pct": None,
+    })
+    text = format_alert(alert)
+    assert "unavailable%" not in text
+    assert "Daily loss used: unavailable" in text
+    assert "Max drawdown used: unavailable" in text
 
 
 def test_risk_status_changed_emoji_reflects_severity_not_a_fixed_type_color():

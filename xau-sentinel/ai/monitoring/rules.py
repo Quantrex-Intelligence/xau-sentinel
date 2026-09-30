@@ -11,6 +11,16 @@ Every dedup_key is built from stable identity (alert type + the specific
 transition + an identifier + a timestamp), never a random id, so the same
 underlying transition can only ever produce one alert (ai/monitoring/store.py
 enforces this again at the database level via a UNIQUE index).
+
+Stage 23B (VAL-019): the timestamp component of the four transition keys
+is the PREVIOUS snapshot's timestamp (the baseline the transition was
+measured from), never the current cycle's. If a cycle persists some alerts
+and then fails before ai/monitoring/engine.py advances its baseline, the
+retry cycle diffs against that SAME baseline and so rebuilds byte-identical
+keys — the UNIQUE index then turns the re-detection into a no-op instead
+of a duplicate alert (and a duplicate Telegram message). A genuine repeat
+of the same transition later is still a new alert, because by then the
+baseline has moved on and carries a different timestamp.
 """
 from typing import List, Optional
 
@@ -37,7 +47,7 @@ def setup_state_changed(previous: Optional[MonitoringSnapshot], current: Monitor
         message=f"XAUUSD setup{direction_label} moved from {previous.setup_state} to {current.setup_state}. "
                 f"{setup.reason}",
         dedup_key=f"SETUP_STATE_CHANGED:{previous.setup_state}->{current.setup_state}:"
-                   f"{current.setup_direction}:{current.timestamp}",
+                   f"{current.setup_direction}:{previous.timestamp}",
         payload={
             "previous_state": previous.setup_state, "current_state": current.setup_state,
             "direction": current.setup_direction, "checklist": dict(setup.checklist),
@@ -48,7 +58,18 @@ def setup_state_changed(previous: Optional[MonitoringSnapshot], current: Monitor
 
 def aplus_setup_detected(previous: Optional[MonitoringSnapshot], current: MonitoringSnapshot,
                           raw: RawEvaluationBundle) -> List[AlertEvent]:
-    if previous is None or previous.aplus_rating == "A+" or current.aplus_rating != "A+":
+    """Fires on a cross INTO A+, and (Stage 23B, VAL-023) also on a change
+    of setup while already A+ — the direction flipped, or a new candidate
+    sweep replaced the prior one with no non-A+ cycle in between. Either is
+    a different trade (new entry/SL/TP) that must be announced; the
+    dedup_key already carries direction + candidate_sweep_time, so it is
+    distinct from the replaced setup's alert."""
+    if previous is None or current.aplus_rating != "A+":
+        return []
+    if previous.aplus_rating == "A+" and (
+        previous.aplus_direction == current.aplus_direction
+        and previous.aplus_candidate_key == current.aplus_candidate_key
+    ):
         return []
     result = raw.strategy_result
     return [AlertEvent(
@@ -76,7 +97,7 @@ def aplus_setup_invalidated(previous: Optional[MonitoringSnapshot], current: Mon
         title="A+ setup invalidated",
         message=f"The previously confirmed A+ setup is no longer valid "
                 f"({result.invalidation or 'deterministic conditions no longer met'}).",
-        dedup_key=f"APLUS_SETUP_INVALIDATED:{previous.aplus_direction}:{current.timestamp}",
+        dedup_key=f"APLUS_SETUP_INVALIDATED:{previous.aplus_direction}:{previous.timestamp}",
         payload={
             "previous_direction": previous.aplus_direction, "invalidation": result.invalidation,
             "rating": result.rating.value,
@@ -96,7 +117,7 @@ def risk_status_changed(previous: Optional[MonitoringSnapshot], current: Monitor
         message=f"FundedNext safety level moved from {previous.risk_safety_level} to "
                 f"{current.risk_safety_level}. {status.reason}",
         dedup_key=f"RISK_STATUS_CHANGED:{previous.risk_safety_level}->{current.risk_safety_level}:"
-                   f"{current.timestamp}",
+                   f"{previous.timestamp}",
         payload={
             "previous_status": previous.risk_safety_level, "current_status": current.risk_safety_level,
             "daily_loss_used_pct": status.daily_loss_used_pct, "max_drawdown_used_pct": status.max_drawdown_used_pct,
@@ -117,7 +138,7 @@ def market_intelligence_quality_changed(previous: Optional[MonitoringSnapshot], 
         message=f"Overall Market Intelligence availability moved from {previous.mi_overall_quality} "
                 f"to {current.mi_overall_quality}.",
         dedup_key=f"MARKET_INTELLIGENCE_QUALITY_CHANGED:{previous.mi_overall_quality}->"
-                   f"{current.mi_overall_quality}:{current.timestamp}",
+                   f"{current.mi_overall_quality}:{previous.timestamp}",
         payload={
             "previous_quality": previous.mi_overall_quality, "current_quality": current.mi_overall_quality,
             "macro_quality": summary.macro.quality if summary else None,

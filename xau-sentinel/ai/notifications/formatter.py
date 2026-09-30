@@ -27,6 +27,13 @@ def _fmt(value) -> str:
     return "unavailable" if value is None else str(value)
 
 
+def _fmt_pct(value) -> str:
+    """Stage 23B (VAL-035): the `%` suffix only attaches to a real number —
+    an UNKNOWN risk status has no percentage, and rendered as
+    "unavailable%" before."""
+    return "unavailable" if value is None else f"{value}%"
+
+
 def _format_setup_state_changed(alert: AlertEvent) -> str:
     p = alert.payload
     lines = [
@@ -75,8 +82,8 @@ def _format_risk_status_changed(alert: AlertEvent) -> str:
         f"{_emoji(alert)} FUNDEDNEXT RISK STATUS CHANGED", "",
         f"Previous status: {_fmt(p.get('previous_status'))}",
         f"Current status: {_fmt(p.get('current_status'))}",
-        f"Daily loss used: {_fmt(p.get('daily_loss_used_pct'))}%",
-        f"Max drawdown used: {_fmt(p.get('max_drawdown_used_pct'))}%",
+        f"Daily loss used: {_fmt_pct(p.get('daily_loss_used_pct'))}",
+        f"Max drawdown used: {_fmt_pct(p.get('max_drawdown_used_pct'))}",
     ]
     if p.get("reason"):
         lines += ["", "Reason:", p["reason"]]

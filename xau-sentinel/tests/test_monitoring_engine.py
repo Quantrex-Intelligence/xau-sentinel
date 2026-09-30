@@ -191,3 +191,113 @@ def test_forming_candle_only_movement_never_produces_a_false_transition(monkeypa
     created = engine.run_monitoring_cycle()
 
     assert created == []
+
+
+# ---------------------------------------------------------------------------
+# Stage 23B
+# ---------------------------------------------------------------------------
+
+def test_detect_setup_receives_the_cycles_own_now(monkeypatch):
+    """Stage 23B follow-up to 23A: detect_setup() must judge candle closure
+    against the same cycle clock evaluate_deterministic() gets."""
+    seen = {}
+    real_detect = engine.detect_setup
+    real_eval = engine.evaluate_deterministic
+
+    def _detect(candles, *args, **kwargs):
+        seen["setup_now"] = kwargs.get("now")
+        return real_detect(candles, *args, **kwargs)
+
+    def _evaluate(candles, status, **kwargs):
+        seen["strategy_now"] = kwargs.get("now")
+        return real_eval(candles, status, **kwargs)
+
+    monkeypatch.setattr(engine, "detect_setup", _detect)
+    monkeypatch.setattr(engine, "evaluate_deterministic", _evaluate)
+    engine.run_monitoring_cycle()
+    assert seen["setup_now"] is not None
+    assert seen["setup_now"] == seen["strategy_now"]
+
+
+def test_insert_that_fails_mid_cycle_does_not_duplicate_on_retry(monkeypatch):
+    """VAL-019: the alert row is written, then the cycle dies before the
+    baseline advances. The retry re-detects the same transition at a new
+    cycle timestamp, but must not store (or send) it twice."""
+    engine.run_monitoring_cycle()  # baseline: SAFE
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
+
+    real_create = store.create_alert
+
+    def _create_then_fail(alert):
+        real_create(alert)
+        raise RuntimeError("simulated failure after the insert")
+
+    monkeypatch.setattr(engine.store, "create_alert", _create_then_fail)
+    with pytest.raises(RuntimeError):
+        engine.run_monitoring_cycle()
+
+    monkeypatch.setattr(engine.store, "create_alert", real_create)
+    assert engine.run_monitoring_cycle() == []  # the retry dedups against the row already there
+    risk_alerts = [a for a in store.list_alerts(limit=100) if a.type.value == "RISK_STATUS_CHANGED"]
+    assert len(risk_alerts) == 1
+
+
+def test_failing_purge_still_advances_the_baseline(monkeypatch):
+    """VAL-019: a purge failure after the alerts are persisted must not pin
+    the diff to the old baseline (which re-detected the transition and, with
+    cycle-timestamped keys, re-sent it)."""
+    engine.run_monitoring_cycle()  # baseline: SAFE
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.WARNING))
+
+    def _boom(days):
+        raise RuntimeError("purge failed")
+
+    monkeypatch.setattr(engine.store, "purge_older_than", _boom)
+    with pytest.raises(RuntimeError):
+        engine.run_monitoring_cycle()
+    with pytest.raises(RuntimeError):
+        engine.run_monitoring_cycle()
+
+    risk_alerts = [a for a in store.list_alerts(limit=100) if a.type.value == "RISK_STATUS_CHANGED"]
+    assert len(risk_alerts) == 1
+
+
+def _run_one_loop_iteration(module, cycle_name, monkeypatch, cycle):
+    """Drives `module.run_forever()` through exactly one cycle: the cycle
+    function is replaced by `cycle`, and asyncio.sleep is patched to end
+    the otherwise-infinite loop."""
+    import asyncio
+
+    class _Stop(Exception):
+        pass
+
+    async def _sleep(_seconds):
+        raise _Stop()
+
+    monkeypatch.setattr(module, cycle_name, cycle)
+    monkeypatch.setattr(module.asyncio, "sleep", _sleep)
+    with pytest.raises(_Stop):
+        asyncio.run(module.run_forever())
+
+
+def test_run_forever_runs_the_cycle_off_the_event_loop_thread(monkeypatch):
+    """Stage 23B (VAL-021): the blocking cycle runs via asyncio.to_thread,
+    never on the event-loop thread itself."""
+    import threading
+    seen = {}
+
+    def _cycle():
+        seen["thread"] = threading.get_ident()
+
+    _run_one_loop_iteration(engine, "run_monitoring_cycle", monkeypatch, _cycle)
+    assert seen["thread"] != threading.get_ident()
+
+
+def test_run_forever_logs_a_failed_cycle(monkeypatch, caplog):
+    """Stage 23B (VAL-033): a failed cycle leaves a logged traceback."""
+    def _cycle():
+        raise RuntimeError("mt5 unreachable")
+
+    with caplog.at_level("ERROR", logger="ai.monitoring.engine"):
+        _run_one_loop_iteration(engine, "run_monitoring_cycle", monkeypatch, _cycle)
+    assert any("Monitoring cycle failed" in r.getMessage() and r.exc_info for r in caplog.records)

@@ -42,6 +42,10 @@ class MonitoringSnapshot:
     mi_overall_quality: str  # "AVAILABLE" | "PARTIALLY_AVAILABLE" | "UNAVAILABLE"
     nearby_high_impact_event_key: Optional[str]
     timestamp: str
+    # Stage 23B (VAL-023): identity of the A+ candidate (its
+    # candidate_sweep_time), so a new setup replacing the prior one while
+    # the rating stays A+ is still detectable as a change.
+    aplus_candidate_key: Optional[str] = None
 
 
 @dataclass

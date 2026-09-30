@@ -10,7 +10,10 @@ touched.
 behind ai/monitoring/engine.py's in-memory snapshot diff: even a race or a
 server restart mid-cycle can never insert two rows for the same underlying
 transition. A repeat insert is silently a no-op (INSERT OR IGNORE), never
-an error.
+an error. (Stage 23B, VAL-019: this holds for all six alert types only
+because ai/monitoring/rules.py keys transitions on the baseline snapshot's
+timestamp, not the cycle's own — a cycle-timestamped key would be unique
+per retry and slip straight past this index.)
 """
 import json
 import sqlite3

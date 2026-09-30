@@ -21,6 +21,7 @@ never generates an alert, so a restart never re-announces the current
 state as if it just changed.
 """
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -35,6 +36,8 @@ from mt5 import market_data
 from risk import settings_store
 from risk.fundednext import compute_status
 from risk.models import AccountType, Phase
+
+logger = logging.getLogger(__name__)
 
 _last_snapshot: Optional[MonitoringSnapshot] = None
 
@@ -52,7 +55,9 @@ def _now() -> datetime:
 
 def _build_bundle(now: datetime) -> RawEvaluationBundle:
     candles = market_data.get_all_candles(300)
-    setup_result = detect_setup(candles)
+    # Stage 23B: the same cycle `now` evaluate_deterministic() gets below,
+    # so both engines judge candle closure/staleness against one clock.
+    setup_result = detect_setup(candles, now=now)
 
     fn_settings = settings_store.get_settings()
     fn_status = compute_status(
@@ -94,6 +99,7 @@ def _to_snapshot(bundle: RawEvaluationBundle, now: datetime) -> MonitoringSnapsh
         risk_safety_level=bundle.fundednext_status.safety_level.value,
         mi_overall_quality=bundle.intelligence_summary.overall,
         nearby_high_impact_event_key=nearest_key, timestamp=now.isoformat(),
+        aplus_candidate_key=bundle.strategy_result.candidate_sweep_time,
     )
 
 
@@ -102,7 +108,15 @@ def run_monitoring_cycle() -> List[AlertEvent]:
     against the previous cycle, persists any newly detected alerts, purges
     old ones, and returns exactly the alerts created THIS cycle (an empty
     list on the baseline-establishing first cycle, or any cycle with no
-    genuine transition)."""
+    genuine transition).
+
+    Stage 23B (VAL-019): the baseline advances as soon as every candidate
+    alert is persisted, BEFORE the retention purge, so a failing purge can
+    never pin the diff to a stale baseline. If an insert itself fails, the
+    baseline is left alone and the next cycle re-detects the transition —
+    but rules.py keys the transition on that unchanged baseline's
+    timestamp, so already-inserted alerts are deduplicated and only the
+    missing ones are created."""
     global _last_snapshot
     now = _now()
 
@@ -117,16 +131,21 @@ def run_monitoring_cycle() -> List[AlertEvent]:
         persisted = store.create_alert(alert)
         if persisted is not None:
             created.append(persisted)
+    _last_snapshot = current
 
     store.purge_older_than(config.ALERT_RETENTION_DAYS)
-    _last_snapshot = current
     return created
 
 
 async def run_forever() -> None:
+    """Stage 23B: the cycle runs in a worker thread (VAL-021) — it does
+    blocking MT5 reads, HTTP calls and SQLite writes, which would otherwise
+    freeze every other async handler (the WebSocket included) for the whole
+    cycle. A failed cycle is logged with its traceback (VAL-033) rather
+    than swallowed silently, and the loop carries on."""
     while True:
         try:
-            run_monitoring_cycle()
+            await asyncio.to_thread(run_monitoring_cycle)
         except Exception:  # noqa: BLE001 - one bad cycle (e.g. a transient MT5/HTTP failure) must never kill the loop
-            pass
+            logger.exception("Monitoring cycle failed; retrying in %ss", config.MONITORING_INTERVAL_SECONDS)
         await asyncio.sleep(config.MONITORING_INTERVAL_SECONDS)
