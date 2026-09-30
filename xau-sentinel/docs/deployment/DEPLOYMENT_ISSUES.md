@@ -24,6 +24,23 @@ changed. Severity reflects the risk of taking the app **online**; locally, every
 | DEP-012 | INFO | MT5 cannot run in the Linux containers; the containerized stack is mock-only |
 | DEP-013 | LOW | Container logs are unbounded and dominated by healthcheck access lines |
 
+## Resolution status (updated after Stage 23)
+
+| ID | Status |
+|---|---|
+| DEP-014 | **Resolved** in `32e394b`: `ai/similarity` is NaN-safe (`_infer_liquidity_kind`, `planned_rr`, regime fallback, `_clean_records` casts to object), and the top-level requirements are pinned to the tested venv. Indirect dependencies are still unpinned (no lock file). |
+| DEP-015 | **Resolved** in `32e394b`: `CatchAllErrorMiddleware` sits inside `CORSMiddleware`, logs the exception and returns a JSON 500 with CORS headers. A plain `exception_handler(Exception)` would not work, because Starlette routes it to the outermost `ServerErrorMiddleware`. |
+| DEP-006 | **Resolved (app side)** in `32e394b`: the `API_DOCS_ENABLED` setting defaults to true for local dev; production compose sets it to false (Lane G). |
+| DEP-004 | **Resolved** in `01656b5`: the monitoring baseline is saved to a one-row `monitoring_baseline` table and restored after a restart if it is no more than 10 minutes old (`engine.BASELINE_MAX_AGE`); otherwise the first cycle just sets a new baseline. |
+| DEP-011 | **Resolved** in `32d2878`: test sends are recorded in `notification_test_sends`; `/telegram/status` adds `last_test_success_at`, and `last_success_at` still means a real alert delivery. The UI does not show the new field yet. |
+| DEP-003 | **Resolved** by VAL-033 (Stage 23B): every background loop logs failures with `logger.exception`. The suggested heartbeat line and status endpoint were not added. |
+| DEP-005 | **Resolved** by VAL-021 (Stage 23B): monitoring, delivery and digest cycles run via `asyncio.to_thread`. |
+| DEP-016 | **Resolved** in Stage 23B: the test uses the `temp_db` fixture. |
+| DEP-007, 008, 009, 010, 013 | In progress (Lane G: compose / frontend wiring). |
+| DEP-001 | **Deferred** (user decision): the app stays local-only on 127.0.0.1. Authentication is its own stage before going online. |
+| DEP-002 | **Deferred** (user decision): the move to PostgreSQL + migrations is its own stage. |
+| DEP-012 | Accepted limitation (INFO): MT5 is Windows-only, so the Linux stack stays mock-only. |
+
 ---
 
 ### DEP-014 — Unpinned dependencies; the image gets pandas 3 and the similarity endpoint 500s (HIGH)
