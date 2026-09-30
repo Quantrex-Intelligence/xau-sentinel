@@ -99,8 +99,12 @@ def test_created_alerts_are_actually_persisted(monkeypatch):
 
 
 def test_reset_state_clears_baseline(monkeypatch):
+    """With no in-memory AND no persisted baseline (a fresh install), the
+    first cycle only baselines. (DEP-004: reset_state() alone now behaves
+    like a restart and restores the persisted row; see the tests below.)"""
     engine.run_monitoring_cycle()  # baseline: SAFE
     engine.reset_state()
+    store.clear_baseline()
 
     monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
     created = engine.run_monitoring_cycle()  # treated as a NEW baseline, not a transition
@@ -301,3 +305,91 @@ def test_run_forever_logs_a_failed_cycle(monkeypatch, caplog):
     with caplog.at_level("ERROR", logger="ai.monitoring.engine"):
         _run_one_loop_iteration(engine, "run_monitoring_cycle", monkeypatch, _cycle)
     assert any("Monitoring cycle failed" in r.getMessage() and r.exc_info for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# DEP-004: the baseline survives a restart
+# ---------------------------------------------------------------------------
+
+def test_restart_alerts_a_transition_that_happened_during_the_downtime(monkeypatch):
+    """State A (SAFE) is persisted, the process restarts, and the first
+    cycle observes B (CRITICAL). Before DEP-004 this re-baselined silently."""
+    engine.run_monitoring_cycle()  # baseline: SAFE, persisted
+    engine.reset_state()  # simulated restart: in-memory baseline gone
+
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
+    created = engine.run_monitoring_cycle()
+
+    assert [a.type.value for a in created] == ["RISK_STATUS_CHANGED"]
+    assert created[0].payload["previous_status"] == "SAFE"
+
+
+def test_stale_persisted_baseline_is_ignored_after_a_restart(monkeypatch):
+    """A baseline older than BASELINE_MAX_AGE is not diffed against: the
+    first cycle only re-baselines, and never alerts."""
+    engine.run_monitoring_cycle()  # baseline: SAFE, persisted
+    engine.reset_state()
+
+    later = datetime.now(timezone.utc) + engine.BASELINE_MAX_AGE + timedelta(minutes=1)
+    monkeypatch.setattr(engine, "_now", lambda: later)
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
+    assert engine.run_monitoring_cycle() == []
+    # ...and the new state is now the persisted baseline.
+    snapshot, _ = store.load_baseline()
+    assert snapshot.risk_safety_level == "CRITICAL"
+
+
+def test_future_dated_persisted_baseline_is_ignored(monkeypatch):
+    """Clock skew (saved_at after `now`) is treated as untrustworthy."""
+    engine.run_monitoring_cycle()
+    engine.reset_state()
+    earlier = datetime.now(timezone.utc) - timedelta(minutes=1)
+    monkeypatch.setattr(engine, "_now", lambda: earlier)
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
+    assert engine.run_monitoring_cycle() == []
+
+
+def test_restart_does_not_duplicate_an_alert_already_stored_before_the_crash(monkeypatch):
+    """Crash between inserting A->B and persisting B: the restarted process
+    restores A, re-detects A->B, and the baseline-timestamp dedup key
+    (VAL-019) makes it a no-op instead of a duplicate."""
+    engine.run_monitoring_cycle()  # SAFE persisted
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
+
+    real_save = engine.store.save_baseline
+
+    def _no_persist(snapshot, saved_at=None):
+        raise RuntimeError("process died before the baseline was saved")
+
+    monkeypatch.setattr(engine.store, "save_baseline", _no_persist)
+    assert len(engine.run_monitoring_cycle()) == 1  # alert stored; the save failed but the cycle survived
+    monkeypatch.setattr(engine.store, "save_baseline", real_save)
+
+    engine.reset_state()  # restart: restores SAFE, observes CRITICAL again
+    assert engine.run_monitoring_cycle() == []
+    risk = [a for a in store.list_alerts(limit=100) if a.type.value == "RISK_STATUS_CHANGED"]
+    assert len(risk) == 1
+
+
+def test_baseline_persistence_failure_keeps_the_in_memory_baseline(monkeypatch, caplog):
+    def _boom(snapshot, saved_at=None):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(engine.store, "save_baseline", _boom)
+    with caplog.at_level("ERROR", logger="ai.monitoring.engine"):
+        assert engine.run_monitoring_cycle() == []
+    assert any("persist the monitoring baseline" in r.getMessage() for r in caplog.records)
+
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.WARNING))
+    assert len(engine.run_monitoring_cycle()) == 1  # diffed against the in-memory baseline
+
+
+def test_unreadable_persisted_baseline_falls_back_to_a_fresh_baseline(monkeypatch):
+    from journal.database import get_connection
+    engine.run_monitoring_cycle()
+    with get_connection() as conn:
+        conn.execute("UPDATE monitoring_baseline SET snapshot = '{not json'")
+        conn.commit()
+    engine.reset_state()
+    monkeypatch.setattr(engine, "compute_status", lambda *a, **k: _fn_status(SafetyLevel.CRITICAL))
+    assert engine.run_monitoring_cycle() == []

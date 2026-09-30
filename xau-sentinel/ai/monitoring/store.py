@@ -14,14 +14,22 @@ an error. (Stage 23B, VAL-019: this holds for all six alert types only
 because ai/monitoring/rules.py keys transitions on the baseline snapshot's
 timestamp, not the cycle's own — a cycle-timestamped key would be unique
 per retry and slip straight past this index.)
+
+DEP-004: a second new table, `monitoring_baseline`, holds exactly one row
+(`id` is pinned to 1 by a CHECK constraint) — the engine's last
+MonitoringSnapshot as JSON plus the UTC time it was saved — so the first
+cycle after a restart can diff against the pre-restart state instead of
+silently re-baselining. It only ever stores the compact comparison
+snapshot, never candles or evaluation objects.
 """
+import dataclasses
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from journal.database import get_connection
-from ai.monitoring.models import AlertEvent, AlertType, Severity
+from ai.monitoring.models import AlertEvent, AlertType, MonitoringSnapshot, Severity
 
 TABLE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS monitoring_alerts (
@@ -37,6 +45,11 @@ CREATE TABLE IF NOT EXISTS monitoring_alerts (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_monitoring_alerts_dedup_key ON monitoring_alerts(dedup_key);
+CREATE TABLE IF NOT EXISTS monitoring_baseline (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    snapshot TEXT NOT NULL,
+    saved_at TEXT NOT NULL
+);
 """
 
 
@@ -135,3 +148,51 @@ def purge_older_than(days: float) -> int:
         cur = conn.execute("DELETE FROM monitoring_alerts WHERE created_at < ?", (cutoff,))
         conn.commit()
         return cur.rowcount
+
+
+# ---------------------------------------------------------------------------
+# DEP-004: persisted monitoring baseline (one row)
+# ---------------------------------------------------------------------------
+
+def save_baseline(snapshot: MonitoringSnapshot, saved_at: Optional[datetime] = None) -> None:
+    """Upserts the single baseline row. Every MonitoringSnapshot field is
+    serialized, optional ones included (aplus_candidate_key,
+    nearby_high_impact_event_key), so a restored baseline diffs exactly like
+    the in-memory one did."""
+    saved = (saved_at or datetime.now(timezone.utc)).isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO monitoring_baseline (id, snapshot, saved_at) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET snapshot = excluded.snapshot, saved_at = excluded.saved_at",
+            (json.dumps(dataclasses.asdict(snapshot)), saved),
+        )
+        conn.commit()
+
+
+def load_baseline() -> Optional[Tuple[MonitoringSnapshot, datetime]]:
+    """Returns (snapshot, saved_at), or None when there is no row, or the
+    row can't be rebuilt into a MonitoringSnapshot (corrupt JSON, a missing
+    required field, an unparseable saved_at). An unreadable baseline is
+    treated like no baseline at all: never guessed at. Unknown keys (from a
+    future schema) are ignored; missing optional fields take their
+    defaults."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT snapshot, saved_at FROM monitoring_baseline WHERE id = 1").fetchone()
+    if row is None:
+        return None
+    try:
+        data = json.loads(row["snapshot"])
+        known = {f.name for f in dataclasses.fields(MonitoringSnapshot)}
+        snapshot = MonitoringSnapshot(**{k: v for k, v in data.items() if k in known})
+        saved_at = datetime.fromisoformat(row["saved_at"])
+    except (TypeError, ValueError, AttributeError):
+        return None
+    if saved_at.tzinfo is None:
+        saved_at = saved_at.replace(tzinfo=timezone.utc)
+    return snapshot, saved_at
+
+
+def clear_baseline() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM monitoring_baseline")
+        conn.commit()

@@ -130,3 +130,47 @@ def test_purge_older_than_removes_old_rows_only():
     remaining = store.list_alerts(limit=100)
     assert len(remaining) == 1
     assert remaining[0].id == with_old_and_new.id
+
+
+# ---------------------------------------------------------------------------
+# DEP-004: persisted monitoring baseline
+# ---------------------------------------------------------------------------
+
+def test_baseline_round_trips_every_snapshot_field_including_optional_ones():
+    from datetime import datetime, timezone
+    from ai.monitoring.models import MonitoringSnapshot
+    from journal.database import get_connection
+
+    snap = MonitoringSnapshot(
+        setup_state="VALID", setup_direction="SELL", aplus_rating="A+", aplus_direction="SELL",
+        risk_safety_level="WARNING", mi_overall_quality="PARTIALLY_AVAILABLE",
+        nearby_high_impact_event_key="CPI:2026-01-01T13:30:00+00:00",
+        timestamp="2026-01-01T13:00:00+00:00", aplus_candidate_key="2026-01-01T12:55:00+00:00",
+    )
+    saved = datetime(2026, 1, 1, 13, 0, 5, tzinfo=timezone.utc)
+    store.save_baseline(snap, saved_at=saved)
+    restored, saved_at = store.load_baseline()
+    assert restored == snap
+    assert saved_at == saved
+
+    none_snap = MonitoringSnapshot(
+        setup_state="NO SETUP", setup_direction=None, aplus_rating="INVALID", aplus_direction=None,
+        risk_safety_level="UNKNOWN", mi_overall_quality="UNAVAILABLE", nearby_high_impact_event_key=None,
+        timestamp="2026-01-01T13:00:20+00:00", aplus_candidate_key=None,
+    )
+    store.save_baseline(none_snap)  # upsert: still exactly one row
+    assert store.load_baseline()[0] == none_snap
+    with get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM monitoring_baseline").fetchone()["n"] == 1
+
+
+def test_load_baseline_is_none_when_empty_or_missing_a_required_field():
+    import json
+    from journal.database import get_connection
+
+    assert store.load_baseline() is None
+    with get_connection() as conn:
+        conn.execute("INSERT INTO monitoring_baseline (id, snapshot, saved_at) VALUES (1, ?, ?)",
+                     (json.dumps({"setup_state": "VALID"}), "2026-01-01T00:00:00+00:00"))
+        conn.commit()
+    assert store.load_baseline() is None

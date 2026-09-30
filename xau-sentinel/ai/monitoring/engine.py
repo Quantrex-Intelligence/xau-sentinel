@@ -12,17 +12,20 @@ any LLM provider at all (see tests/test_monitoring_engine.py's structural
 test). This is what makes "the LLM must NOT decide whether an alert
 condition exists" true by construction.
 
-Module-level `_last_snapshot` is the ONLY state this engine keeps between
-cycles — an in-process variable, not Redis/a message broker/anything else
+Module-level `_last_snapshot` is the baseline this engine diffs against
+— an in-process variable, not Redis/a message broker/anything else
 (matches Stage 11's cache.py: no infrastructure beyond a single local
-process for a single-user tool). It resets to None on every server
-restart; the first cycle after a reset only establishes the baseline and
-never generates an alert, so a restart never re-announces the current
-state as if it just changed.
+process for a single-user tool). DEP-004: every time it advances it is
+also mirrored to a one-row SQLite table (ai/monitoring/store.py's
+`monitoring_baseline`), so the first cycle after a restart diffs against
+the pre-restart state and a transition that happened during the downtime
+is still alerted. That persisted baseline is only trusted if it was saved
+within BASELINE_MAX_AGE; an older (or missing/corrupt) one is ignored and
+the first cycle only establishes a baseline, never alerting, as before.
 """
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import config
@@ -41,12 +44,56 @@ logger = logging.getLogger(__name__)
 
 _last_snapshot: Optional[MonitoringSnapshot] = None
 
+# DEP-004: how old a persisted baseline may be and still be diffed against
+# after a restart. A restart/redeploy/crash-recovery takes seconds to a few
+# minutes; anything older than this means the process was down long enough
+# that "A before, B now" is no longer a transition anyone needs to hear
+# about as if it just happened (a stale A+ -> INVALID, yesterday's risk
+# level), so the conservative choice is to re-baseline silently, exactly as
+# before DEP-004. A module constant rather than a config value on purpose.
+BASELINE_MAX_AGE = timedelta(minutes=10)
+
 
 def reset_state() -> None:
     """Test-only escape hatch (mirrors ai/market_intelligence/providers/cache.py::clear())
-    — production code never needs to call this."""
+    — production code never needs to call this. Simulates a process
+    restart: the in-memory baseline is dropped, and the next cycle will try
+    the persisted one again (see _restore_baseline())."""
     global _last_snapshot
     _last_snapshot = None
+
+
+def _restore_baseline(now: datetime) -> Optional[MonitoringSnapshot]:
+    """DEP-004: the first cycle of a process diffs against the persisted
+    pre-restart snapshot, but only if it was saved within BASELINE_MAX_AGE
+    of `now`. Stale, future-dated (clock skew), missing, corrupt or
+    unreadable baselines all return None, i.e. the first cycle only
+    establishes a baseline and never alerts, same as before DEP-004."""
+    try:
+        loaded = store.load_baseline()
+    except Exception:  # noqa: BLE001 - a DB problem must never block monitoring
+        logger.exception("Could not read the persisted monitoring baseline; starting fresh")
+        return None
+    if loaded is None:
+        return None
+    snapshot, saved_at = loaded
+    age = now - saved_at
+    if age < timedelta(0) or age > BASELINE_MAX_AGE:
+        logger.info("Ignoring persisted monitoring baseline saved at %s (age %s)", saved_at.isoformat(), age)
+        return None
+    return snapshot
+
+
+def _set_baseline(snapshot: MonitoringSnapshot) -> None:
+    """Advances the in-memory baseline and mirrors it to the persisted row.
+    A persistence failure is logged and otherwise ignored: the in-memory
+    baseline is authoritative for this process, so the cycle carries on."""
+    global _last_snapshot
+    _last_snapshot = snapshot
+    try:
+        store.save_baseline(snapshot)
+    except Exception:  # noqa: BLE001 - persistence is best-effort (DEP-004)
+        logger.exception("Could not persist the monitoring baseline; keeping it in memory only")
 
 
 def _now() -> datetime:
@@ -117,12 +164,15 @@ def run_monitoring_cycle() -> List[AlertEvent]:
     but rules.py keys the transition on that unchanged baseline's
     timestamp, so already-inserted alerts are deduplicated and only the
     missing ones are created."""
-    global _last_snapshot
     now = _now()
 
     bundle = _build_bundle(now)
     current = _to_snapshot(bundle, now)
-    previous = _last_snapshot
+    # DEP-004: with no in-memory baseline (a fresh process, or every
+    # earlier cycle failed before advancing it), fall back to the persisted
+    # one. A retry after a failed first cycle restores the SAME row, so the
+    # baseline-timestamp dedup keys (VAL-019) still absorb re-detections.
+    previous = _last_snapshot if _last_snapshot is not None else _restore_baseline(now)
 
     candidate_alerts = rules.evaluate_all(previous, current, bundle)
 
@@ -131,7 +181,7 @@ def run_monitoring_cycle() -> List[AlertEvent]:
         persisted = store.create_alert(alert)
         if persisted is not None:
             created.append(persisted)
-    _last_snapshot = current
+    _set_baseline(current)
 
     store.purge_older_than(config.ALERT_RETENTION_DAYS)
     return created
