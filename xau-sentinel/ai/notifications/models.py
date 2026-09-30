@@ -46,3 +46,8 @@ class DeliveryResult:
     success: bool
     error: Optional[str] = None
     retryable: bool = True
+    # Stage 23B (VAL-034): the provider's own "don't retry before N
+    # seconds" instruction (Telegram's 429 `parameters.retry_after`), when
+    # it gave one. None means no instruction — the worker's normal backoff
+    # applies.
+    retry_after_seconds: Optional[float] = None

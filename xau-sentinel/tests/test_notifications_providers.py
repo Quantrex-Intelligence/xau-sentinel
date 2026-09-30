@@ -181,3 +181,29 @@ def test_factory_raises_for_unknown_provider_name(monkeypatch):
     monkeypatch.setattr(config, "NOTIFICATION_PROVIDER", "not-a-real-provider")
     with pytest.raises(ValueError, match="Unknown NOTIFICATION_PROVIDER"):
         get_notification_provider()
+
+
+# ---------------------------------------------------------------------------
+# Stage 23B (VAL-034): a 429's retry_after is surfaced to the worker
+# ---------------------------------------------------------------------------
+
+def test_rate_limit_surfaces_telegrams_retry_after(monkeypatch):
+    body = {"ok": False, "error_code": 429, "description": "Too Many Requests: retry after 37",
+            "parameters": {"retry_after": 37}}
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _FakeResponse(429, body))
+    result = TelegramNotificationProvider().send("hello")
+    assert result.success is False
+    assert result.retryable is True
+    assert result.retry_after_seconds == 37
+
+
+def test_rate_limit_falls_back_to_the_retry_after_header(monkeypatch):
+    response = _FakeResponse(429, {"description": "Too Many Requests"})
+    response.headers = {"Retry-After": "12"}
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: response)
+    assert TelegramNotificationProvider().send("hello").retry_after_seconds == 12
+
+
+def test_non_rate_limit_errors_carry_no_retry_after(monkeypatch):
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _FakeResponse(503, {"parameters": {"retry_after": 5}}))
+    assert TelegramNotificationProvider().send("hello").retry_after_seconds is None

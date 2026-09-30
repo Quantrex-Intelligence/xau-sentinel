@@ -29,6 +29,30 @@ class NotificationConfigError(Exception):
     Never includes the token (there isn't one to include)."""
 
 
+def _retry_after_seconds(response: httpx.Response) -> Optional[float]:
+    """Stage 23B (VAL-034): how long Telegram asked us to wait on a 429 —
+    its JSON `parameters.retry_after` first, then the standard Retry-After
+    header. None when neither is present or parseable (the worker's fixed
+    backoff then applies, as before)."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    candidates = []
+    if isinstance(body, dict) and isinstance(body.get("parameters"), dict):
+        candidates.append(body["parameters"].get("retry_after"))
+    headers = getattr(response, "headers", None) or {}
+    candidates.append(headers.get("Retry-After"))
+    for value in candidates:
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError):
+            continue
+        if seconds >= 0:
+            return seconds
+    return None
+
+
 def _telegram_description(response: httpx.Response) -> Optional[str]:
     try:
         body = response.json()
@@ -72,4 +96,5 @@ class TelegramNotificationProvider(NotificationProvider):
         description = _telegram_description(response) or "no further detail"
         error = f"Telegram API returned HTTP {response.status_code}: {description}"
         retryable = response.status_code in _RETRYABLE_STATUS_CODES
-        return DeliveryResult(success=False, error=error, retryable=retryable)
+        retry_after = _retry_after_seconds(response) if response.status_code == 429 else None
+        return DeliveryResult(success=False, error=error, retryable=retryable, retry_after_seconds=retry_after)

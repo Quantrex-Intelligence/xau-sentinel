@@ -158,6 +158,17 @@ def _reset_monitoring_engine_state():
 
 
 @pytest.fixture(autouse=True)
+def _reset_notification_delivery_state():
+    """Stage 23B: ai/notifications/delivery.py keeps module-level state
+    (worker start time, sent-but-unrecorded ids, rate-limit pause), reset
+    here for the same reason as the monitoring engine's snapshot above."""
+    from ai.notifications import delivery
+    delivery.reset_state()
+    yield
+    delivery.reset_state()
+
+
+@pytest.fixture(autouse=True)
 def _clear_market_intelligence_cache():
     """ai/market_intelligence/providers/cache.py is a module-level, process-
     lifetime in-memory cache (by design — see its own docstring). Without

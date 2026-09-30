@@ -289,3 +289,149 @@ def test_monitoring_engine_never_imports_notifications():
         source = inspect.getsource(module)
         assert "telegram" not in source.lower()
         assert "notifications" not in source.lower()
+
+
+# ---------------------------------------------------------------------------
+# Stage 23B
+# ---------------------------------------------------------------------------
+
+def test_mark_sent_failure_never_causes_a_resend(monkeypatch, _mock_provider):
+    """VAL-020: Telegram accepted the message but the SENT write failed.
+    The next cycle must finish the bookkeeping, not send it again."""
+    _seed_monitoring_alert()
+    delivery.discover_new_alerts()
+
+    real_mark_sent = store.mark_sent
+
+    def _fail(delivery_id):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(delivery.store, "mark_sent", _fail)
+    assert delivery.attempt_deliveries() == []
+    assert len(_mock_provider.sent_messages) == 1
+
+    monkeypatch.setattr(delivery.store, "mark_sent", real_mark_sent)
+    delivery.attempt_deliveries()
+    assert len(_mock_provider.sent_messages) == 1  # never resent
+    assert store.list_deliveries(limit=10)[0].status == DeliveryStatus.SENT
+
+
+def test_unexpected_provider_exception_fails_only_that_delivery(monkeypatch):
+    """VAL-020: an exception send() doesn't classify (httpx.InvalidURL is not
+    an httpx.HTTPError) used to abort every cycle for every queued item and
+    bypass TELEGRAM_MAX_RETRIES. It now fails just that delivery, with a
+    token-free error, and the rest of the queue still goes out."""
+    import httpx
+
+    class _Provider:
+        def __init__(self):
+            self.calls = 0
+
+        def send(self, message):
+            self.calls += 1
+            if self.calls == 1:
+                raise httpx.InvalidURL("https://api.telegram.org/botSECRET/sendMessage")
+            return DeliveryResult(success=True)
+
+    provider = _Provider()
+    monkeypatch.setattr(delivery, "get_notification_provider", lambda: provider)
+    _seed_monitoring_alert(dedup_key="k1")
+    _seed_monitoring_alert(dedup_key="k2")
+    delivery.discover_new_alerts()
+
+    attempted = delivery.attempt_deliveries()
+    assert sorted(d.status.value for d in attempted) == ["FAILED", "SENT"]
+    failed = next(d for d in attempted if d.status == DeliveryStatus.FAILED)
+    assert failed.attempt_count == 1  # counted, so TELEGRAM_MAX_RETRIES applies
+    assert "InvalidURL" in failed.error
+    assert "SECRET" not in failed.error
+
+
+def test_discovery_only_queues_alerts_after_worker_start():
+    """VAL-022: enabling Telegram must not queue the alert history."""
+    from datetime import datetime, timezone
+
+    old = _seed_monitoring_alert(dedup_key="old")
+    time.sleep(0.01)
+    delivery.mark_worker_started(datetime.now(timezone.utc))
+    time.sleep(0.01)
+    new = _seed_monitoring_alert(dedup_key="new")
+
+    assert delivery.discover_new_alerts() == 1
+    queued = {d.alert_id for d in store.list_deliveries(limit=10)}
+    assert queued == {new.id}
+    assert old.id not in queued
+
+
+def test_rate_limit_retry_after_pauses_the_whole_channel(monkeypatch):
+    """VAL-034: after a 429 with retry_after, nothing else is sent (and no
+    retry is burned) until the window passes."""
+    monkeypatch.setattr("config.TELEGRAM_RETRY_BACKOFF_SECONDS", 0.01)
+    provider = _RecordingProvider(results=[
+        DeliveryResult(success=False, error="HTTP 429", retryable=True, retry_after_seconds=0.2),
+        DeliveryResult(success=True), DeliveryResult(success=True),
+    ])
+    monkeypatch.setattr(delivery, "get_notification_provider", lambda: provider)
+    _seed_monitoring_alert(dedup_key="k1")
+    _seed_monitoring_alert(dedup_key="k2")
+    delivery.discover_new_alerts()
+
+    first = delivery.attempt_deliveries()
+    assert len(first) == 1 and first[0].status == DeliveryStatus.FAILED
+    assert len(provider.sent_messages) == 1  # the second alert waited too
+
+    time.sleep(0.05)  # past the fixed backoff, still inside retry_after
+    assert delivery.attempt_deliveries() == []
+    assert len(provider.sent_messages) == 1
+
+    time.sleep(0.25)
+    after = delivery.attempt_deliveries()
+    assert sorted(d.status.value for d in after) == ["SENT", "SENT"]
+
+
+def _run_one_loop_iteration(module, cycle_name, monkeypatch, cycle):
+    import asyncio
+
+    class _Stop(Exception):
+        pass
+
+    async def _sleep(_seconds):
+        raise _Stop()
+
+    monkeypatch.setattr(module, cycle_name, cycle)
+    monkeypatch.setattr(module.asyncio, "sleep", _sleep)
+    with pytest.raises(_Stop):
+        asyncio.run(module.run_forever())
+
+
+def test_delivery_loop_runs_off_the_event_loop_and_logs_failures(monkeypatch, caplog):
+    """VAL-021 + VAL-033 for the delivery loop; it also records its own
+    start time (VAL-022)."""
+    import threading
+    seen = {}
+
+    def _cycle():
+        seen["thread"] = threading.get_ident()
+        raise RuntimeError("sqlite exploded")
+
+    with caplog.at_level("ERROR", logger="ai.notifications.delivery"):
+        _run_one_loop_iteration(delivery, "run_delivery_cycle", monkeypatch, _cycle)
+    assert seen["thread"] != threading.get_ident()
+    assert any("delivery cycle failed" in r.getMessage() and r.exc_info for r in caplog.records)
+    assert delivery._worker_started_at is not None
+
+
+def test_digest_loop_runs_off_the_event_loop_and_logs_failures(monkeypatch, caplog):
+    """VAL-021 + VAL-033 for the digest loop."""
+    import threading
+    from ai.digest import service as digest_service
+    seen = {}
+
+    def _cycle():
+        seen["thread"] = threading.get_ident()
+        raise RuntimeError("digest exploded")
+
+    with caplog.at_level("ERROR", logger="ai.digest.service"):
+        _run_one_loop_iteration(digest_service, "run_digest_cycle", monkeypatch, _cycle)
+    assert seen["thread"] != threading.get_ident()
+    assert any("Digest cycle failed" in r.getMessage() and r.exc_info for r in caplog.records)

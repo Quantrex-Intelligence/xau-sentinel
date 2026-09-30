@@ -193,7 +193,9 @@ def test_build_digest_previous_period_only_set_when_prior_data_exists(monkeypatc
     assert summary.previous_period.current_trade_count == 1
 
 
-def test_build_digest_dates_are_the_expected_completed_period():
+def test_build_digest_dates_are_the_expected_completed_period(temp_db):
+    # temp_db: build_digest() reads the trades table (Stage 23B fix; it
+    # failed with "no such table: trades" on a fresh checkout).
     summary = service.build_digest(DigestType.WEEKLY, reference=date(2026, 9, 29))
     assert (summary.period_start, summary.period_end) == (date(2026, 9, 21), date(2026, 9, 28))
 

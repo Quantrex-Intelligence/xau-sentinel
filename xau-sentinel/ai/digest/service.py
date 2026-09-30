@@ -11,6 +11,7 @@ wrapper" shape exactly.
 """
 import asyncio
 import calendar
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -25,6 +26,8 @@ from ai.strategy_analytics import metrics as strategy_metrics
 from ai.trade_review import patterns
 
 CHANNEL = "telegram"
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -188,13 +191,17 @@ def run_digest_cycle() -> None:
         try:
             attempt_send(digest_type, reference=now.date())
         except Exception:  # noqa: BLE001 - one type's failure must never block the other
-            pass
+            logger.exception("%s digest send failed", digest_type.value)  # Stage 23B, VAL-033
 
 
 async def run_forever() -> None:
+    """Stage 23B: the cycle runs in a worker thread (VAL-021). Building a
+    digest reads SQLite and sending it is a blocking HTTP call, so neither
+    should run on the event loop. A failed cycle is logged (VAL-033), not
+    swallowed."""
     while True:
         try:
-            run_digest_cycle()
+            await asyncio.to_thread(run_digest_cycle)
         except Exception:  # noqa: BLE001 - one bad cycle must never kill the loop
-            pass
+            logger.exception("Digest cycle failed; retrying in %ss", config.DIGEST_POLL_INTERVAL_SECONDS)
         await asyncio.sleep(config.DIGEST_POLL_INTERVAL_SECONDS)

@@ -18,7 +18,7 @@ measured from), never the current cycle's. If a cycle persists some alerts
 and then fails before ai/monitoring/engine.py advances its baseline, the
 retry cycle diffs against that SAME baseline and so rebuilds byte-identical
 keys — the UNIQUE index then turns the re-detection into a no-op instead
-of a duplicate alert (and a duplicate Telegram message). A genuine repeat
+of a duplicate alert (and a duplicate outbound notification). A genuine repeat
 of the same transition later is still a new alert, because by then the
 baseline has moved on and carries a different timestamp.
 """
