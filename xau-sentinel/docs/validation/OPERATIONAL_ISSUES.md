@@ -48,6 +48,7 @@ issues are documented, not patched.
 
 - **Severity:** P3
 - **Classification:** limitation
+- **Status: Resolved.** `ai/monitoring/engine.py::run_forever()` now logs `"Monitoring loop started (cycle interval %ss)"` once at startup, and `"Monitoring loop alive: %d cycles completed"` every `HEARTBEAT_EVERY_N_CYCLES` (15, ~5 minutes at the default 20s interval) successful cycles — frequent enough to notice a hang, infrequent enough to stay within DEP-013's log-volume cap. New test `test_run_forever_logs_start_and_a_periodic_heartbeat` in `tests/test_monitoring_engine.py` drives the loop through a full heartbeat interval to prove the log line actually fires, not just that the code contains it.
 - **Reproduction:** `docker compose logs api` (or the host uvicorn log) after a clean startup shows only generic uvicorn lines (`Started server process`, `Application startup complete`, `Uvicorn running on ...`) — no line confirming the monitoring background task itself started or completed a cycle.
 - **Expected:** Some operator-visible confirmation the monitoring loop is alive, beyond "no error was logged."
 - **Actual:** The only way to confirm the loop ran tonight was reading the `monitoring_baseline` table directly — not something an operator watching logs alone could do.
@@ -64,13 +65,14 @@ issues are documented, not patched.
 
 - **Severity:** N/A
 - **Classification:** configuration
-- **Detail:** `DIGEST_ENABLED=false` in `.env`. Per the plan, not silently enabled for this test. `completed_period_bounds()`'s correctness already has dedicated regression tests (Stage 20) and was live-verified against the real wall clock at the time (per `project_xau_sentinel_status.md`'s Stage 20 notes) — not re-derived tonight.
+- **Status: Live-tested (2026-09-30, follow-up).** `DIGEST_ENABLED` stays `false` in `.env` (the background scheduler was **not** silently enabled), but `POST /api/digest/preview` and `POST /api/digest/send` deliberately bypass that flag as an explicit manual action, so both were exercised directly against the real journal DB and real Telegram: `preview` returned `period_start: 2026-09-21, period_end: 2026-09-28` for a WEEKLY digest requested on 2026-09-30 (a Wednesday) — correctly the last *completed* Mon-Sun week, not the current in-progress one, matching Stage 20's fix. `send` returned `{"sent": true, "already_sent": false}` on the first call (a real message delivered to the configured Telegram chat) and `{"sent": false, "already_sent": true}` on an immediate resend for the same period — dedup confirmed live, not just in tests.
+- **Detail:** `completed_period_bounds()`'s correctness already has dedicated regression tests (Stage 20) and was live-verified against the real wall clock at the time (per `project_xau_sentinel_status.md`'s Stage 20 notes) — this follow-up re-confirms it against tonight's real date and real (empty) journal data.
 
 ### OP-007 — MT5 disconnect/reconnect (spec §2)
 
 - **Severity:** N/A
 - **Classification:** insufficient validation
-- **Detail:** Not tested against the live running app tonight, to avoid disrupting the user's real, currently-open MT5 terminal session. `connection.connect()`/`disconnect()` were exercised correctly in a disposable one-off script earlier tonight (during the VAL-016/017 live check) — not re-run against the actual app process in this stage.
+- **Detail:** Still not tested against the live running app, on a follow-up attempt: there is no HTTP-triggerable disconnect route in this app (checked — `grep -rn "disconnect" api/routes/*.py` returns nothing, by design for a read-only monitoring tool), and forcing it any other way would mean either closing the user's real, currently-open MT5 terminal, or adding new debug-only scaffolding outside this task's scope — neither was done. `connection.connect()` (the reconnect half) IS now exercised, correctly, by every monitoring cycle via the OP-001 fix; `connection.disconnect()`/the initial-failure path were exercised correctly in a disposable one-off script earlier tonight (during the VAL-016/017 live check). A genuine mid-session drop-then-recover against the live app process remains unverified.
 
 ### OP-008 — VAL-016 commission/swap/fee summing (spec §7)
 

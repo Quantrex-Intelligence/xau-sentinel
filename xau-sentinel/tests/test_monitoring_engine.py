@@ -340,6 +340,36 @@ def test_run_forever_logs_a_failed_cycle(monkeypatch, caplog):
     assert any("Monitoring cycle failed" in r.getMessage() and r.exc_info for r in caplog.records)
 
 
+def test_run_forever_logs_start_and_a_periodic_heartbeat(monkeypatch, caplog):
+    """OP-004 (docs/validation/OPERATIONAL_ISSUES.md): a live check found no
+    log line ever confirmed the loop started or was still alive — only a
+    failure was logged. Drives the loop through exactly
+    HEARTBEAT_EVERY_N_CYCLES successful cycles (unlike
+    _run_one_loop_iteration, which stops after cycle 1) to prove the
+    heartbeat actually fires, not just that the code contains the string."""
+    import asyncio
+
+    class _Stop(Exception):
+        pass
+
+    sleep_calls = {"n": 0}
+
+    async def _sleep(_seconds):
+        sleep_calls["n"] += 1
+        if sleep_calls["n"] >= engine.HEARTBEAT_EVERY_N_CYCLES:
+            raise _Stop()
+
+    monkeypatch.setattr(engine, "run_monitoring_cycle", lambda: None)
+    monkeypatch.setattr(engine.asyncio, "sleep", _sleep)
+
+    with caplog.at_level("INFO", logger="ai.monitoring.engine"):
+        with pytest.raises(_Stop):
+            asyncio.run(engine.run_forever())
+
+    assert any("Monitoring loop started" in r.getMessage() for r in caplog.records)
+    assert any("Monitoring loop alive" in r.getMessage() for r in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # DEP-004: the baseline survives a restart
 # ---------------------------------------------------------------------------

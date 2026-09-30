@@ -53,6 +53,13 @@ _last_snapshot: Optional[MonitoringSnapshot] = None
 # before DEP-004. A module constant rather than a config value on purpose.
 BASELINE_MAX_AGE = timedelta(minutes=10)
 
+# OP-004: how often run_forever() logs an "I'm still alive" heartbeat, in
+# successful cycles rather than wall-clock time (simpler to reason about
+# and to test). 15 cycles * the default 20s MONITORING_INTERVAL_SECONDS is
+# about 5 minutes — frequent enough to notice a hang, infrequent enough not
+# to compete with DEP-013's container log-volume cap.
+HEARTBEAT_EVERY_N_CYCLES = 15
+
 
 def reset_state() -> None:
     """Test-only escape hatch (mirrors ai/market_intelligence/providers/cache.py::clear())
@@ -201,10 +208,23 @@ async def run_forever() -> None:
     blocking MT5 reads, HTTP calls and SQLite writes, which would otherwise
     freeze every other async handler (the WebSocket included) for the whole
     cycle. A failed cycle is logged with its traceback (VAL-033) rather
-    than swallowed silently, and the loop carries on."""
+    than swallowed silently, and the loop carries on.
+
+    OP-004 (docs/validation/OPERATIONAL_ISSUES.md): a live check found no
+    log line ever confirmed the loop started or was still alive — only a
+    failure was ever logged, so "no news" and "silently dead" looked
+    identical to an operator watching logs alone. A start line plus a
+    periodic heartbeat (every HEARTBEAT_EVERY_N_CYCLES successful cycles,
+    not every cycle, to stay within DEP-013's log-volume budget) closes
+    that gap without needing a separate status endpoint."""
+    logger.info("Monitoring loop started (cycle interval %ss)", config.MONITORING_INTERVAL_SECONDS)
+    cycles = 0
     while True:
         try:
             await asyncio.to_thread(run_monitoring_cycle)
+            cycles += 1
+            if cycles % HEARTBEAT_EVERY_N_CYCLES == 0:
+                logger.info("Monitoring loop alive: %d cycles completed", cycles)
         except Exception:  # noqa: BLE001 - one bad cycle (e.g. a transient MT5/HTTP failure) must never kill the loop
             logger.exception("Monitoring cycle failed; retrying in %ss", config.MONITORING_INTERVAL_SECONDS)
         await asyncio.sleep(config.MONITORING_INTERVAL_SECONDS)
