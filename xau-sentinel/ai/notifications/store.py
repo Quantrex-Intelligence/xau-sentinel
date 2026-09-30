@@ -1,16 +1,15 @@
-"""SQLite persistence for delivery state (Stage 14). One new table, added
-the established way: CREATE TABLE IF NOT EXISTS through
-journal.database.get_connection() (calling it, never editing it) — the
-same pattern ai/monitoring/store.py already established. Neither
-ai/monitoring/store.py nor its `monitoring_alerts` table is touched by
-this module; delivery state for a channel is deliberately a SEPARATE
-table (see ai/notifications/models.py's docstring) so "should this alert
-exist" and "have I delivered it" can never be conflated.
+"""PostgreSQL persistence for delivery state (Stage 14, DEP-002). Tables are
+defined in journal/schema.py alongside every other table; this module only
+builds and executes Core queries against them through
+journal.database.get_connection(). Delivery state for a channel is
+deliberately a SEPARATE table from ai/monitoring/store.py's
+`monitoring_alerts` (see ai/notifications/models.py's docstring) so "should
+this alert exist" and "have I delivered it" can never be conflated.
 
 `UNIQUE(alert_id, channel)` is the hard backstop behind
 ai/notifications/delivery.py's discovery step: a second discovery of the
-same alert is a silent no-op (INSERT OR IGNORE), never a duplicate row —
-the same "stable identity, not a random id" dedup contract
+same alert is a silent no-op (ON CONFLICT DO NOTHING), never a duplicate row
+— the same "stable identity, not a random id" dedup contract
 ai/monitoring/store.py's dedup_key already uses.
 
 DEP-011: a second, separate table, `notification_test_sends`, records the
@@ -19,50 +18,28 @@ upserted). It is deliberately NOT an alert_deliveries row: a test message
 is not an alert delivery, so last_success_at() keeps meaning "an alert was
 really delivered" and the test result is reported on its own.
 """
-import sqlite3
 from datetime import datetime, timezone
 from typing import List, Optional, Set
 
+from sqlalchemy import select, update, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from journal.database import get_connection
+from journal.schema import alert_deliveries, notification_test_sends
 from ai.notifications.models import AlertDelivery, DeliveryStatus
 
-TABLE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS alert_deliveries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    alert_id INTEGER NOT NULL,
-    channel TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'PENDING',
-    attempt_count INTEGER NOT NULL DEFAULT 0,
-    last_attempt_at TEXT,
-    sent_at TEXT,
-    error TEXT,
-    retryable INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_deliveries_alert_channel ON alert_deliveries(alert_id, channel);
-CREATE TABLE IF NOT EXISTS notification_test_sends (
-    provider TEXT PRIMARY KEY,
-    last_success_at TEXT NOT NULL
-);
-"""
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def init_table() -> None:
-    with get_connection() as conn:
-        conn.executescript(TABLE_SCHEMA)
-        conn.commit()
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _row_to_delivery(row: sqlite3.Row) -> AlertDelivery:
+def _row_to_delivery(row) -> AlertDelivery:
     return AlertDelivery(
-        id=row["id"], alert_id=row["alert_id"], channel=row["channel"],
-        status=DeliveryStatus(row["status"]), attempt_count=row["attempt_count"],
-        last_attempt_at=row["last_attempt_at"], sent_at=row["sent_at"], error=row["error"],
-        retryable=bool(row["retryable"]), created_at=row["created_at"],
+        id=row.id, alert_id=row.alert_id, channel=row.channel,
+        status=DeliveryStatus(row.status), attempt_count=row.attempt_count,
+        last_attempt_at=row.last_attempt_at.isoformat() if row.last_attempt_at else None,
+        sent_at=row.sent_at.isoformat() if row.sent_at else None, error=row.error,
+        retryable=row.retryable, created_at=row.created_at.isoformat(),
     )
 
 
@@ -70,15 +47,17 @@ def create_pending(alert_id: int, channel: str) -> Optional[AlertDelivery]:
     """Returns the new PENDING delivery row, or None if one already exists
     for this (alert_id, channel) — a genuine duplicate, silently ignored."""
     with get_connection() as conn:
-        cur = conn.execute(
-            "INSERT OR IGNORE INTO alert_deliveries (alert_id, channel, status, created_at) "
-            "VALUES (?, ?, 'PENDING', ?)",
-            (alert_id, channel, _now_iso()),
-        )
+        stmt = pg_insert(alert_deliveries).values(
+            alert_id=alert_id, channel=channel, status="PENDING", created_at=_now(),
+        ).on_conflict_do_nothing(
+            index_elements=["alert_id", "channel"]
+        ).returning(alert_deliveries.c.id)
+        result = conn.execute(stmt)
         conn.commit()
-        if cur.rowcount == 0:
+        row_id = result.scalar_one_or_none()
+        if row_id is None:
             return None
-        row = conn.execute("SELECT * FROM alert_deliveries WHERE id = ?", (cur.lastrowid,)).fetchone()
+        row = conn.execute(select(alert_deliveries).where(alert_deliveries.c.id == row_id)).fetchone()
         return _row_to_delivery(row)
 
 
@@ -87,8 +66,10 @@ def get_delivered_alert_ids(channel: str) -> Set[int]:
     (PENDING, SENT, or FAILED) — i.e. already discovered, not necessarily
     already sent."""
     with get_connection() as conn:
-        rows = conn.execute("SELECT alert_id FROM alert_deliveries WHERE channel = ?", (channel,)).fetchall()
-    return {r["alert_id"] for r in rows}
+        rows = conn.execute(
+            select(alert_deliveries.c.alert_id).where(alert_deliveries.c.channel == channel)
+        ).fetchall()
+    return {r.alert_id for r in rows}
 
 
 def list_pending_and_retryable_failed(channel: str) -> List[AlertDelivery]:
@@ -97,24 +78,30 @@ def list_pending_and_retryable_failed(channel: str) -> List[AlertDelivery]:
     is excluded here permanently, not just skipped for one cycle."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM alert_deliveries WHERE channel = ? AND "
-            "(status = 'PENDING' OR (status = 'FAILED' AND retryable = 1)) "
-            "ORDER BY id ASC",
-            (channel,),
+            select(alert_deliveries)
+            .where(
+                alert_deliveries.c.channel == channel,
+                (alert_deliveries.c.status == "PENDING")
+                | ((alert_deliveries.c.status == "FAILED") & (alert_deliveries.c.retryable.is_(True))),
+            )
+            .order_by(alert_deliveries.c.id.asc())
         ).fetchall()
     return [_row_to_delivery(r) for r in rows]
 
 
 def mark_sent(delivery_id: int) -> AlertDelivery:
-    now = _now_iso()
+    now = _now()
     with get_connection() as conn:
         conn.execute(
-            "UPDATE alert_deliveries SET status = 'SENT', sent_at = ?, last_attempt_at = ?, "
-            "attempt_count = attempt_count + 1, error = NULL, retryable = 1 WHERE id = ?",
-            (now, now, delivery_id),
+            update(alert_deliveries)
+            .where(alert_deliveries.c.id == delivery_id)
+            .values(
+                status="SENT", sent_at=now, last_attempt_at=now,
+                attempt_count=alert_deliveries.c.attempt_count + 1, error=None, retryable=True,
+            )
         )
         conn.commit()
-        row = conn.execute("SELECT * FROM alert_deliveries WHERE id = ?", (delivery_id,)).fetchone()
+        row = conn.execute(select(alert_deliveries).where(alert_deliveries.c.id == delivery_id)).fetchone()
         return _row_to_delivery(row)
 
 
@@ -125,48 +112,47 @@ def mark_failed(delivery_id: int, error: str, retryable: bool = True) -> AlertDe
     ai/notifications/delivery.py::attempt_deliveries())."""
     with get_connection() as conn:
         conn.execute(
-            "UPDATE alert_deliveries SET status = 'FAILED', last_attempt_at = ?, "
-            "attempt_count = attempt_count + 1, error = ?, retryable = ? WHERE id = ?",
-            (_now_iso(), error, 1 if retryable else 0, delivery_id),
+            update(alert_deliveries)
+            .where(alert_deliveries.c.id == delivery_id)
+            .values(
+                status="FAILED", last_attempt_at=_now(),
+                attempt_count=alert_deliveries.c.attempt_count + 1, error=error, retryable=retryable,
+            )
         )
         conn.commit()
-        row = conn.execute("SELECT * FROM alert_deliveries WHERE id = ?", (delivery_id,)).fetchone()
+        row = conn.execute(select(alert_deliveries).where(alert_deliveries.c.id == delivery_id)).fetchone()
         return _row_to_delivery(row)
 
 
 def list_deliveries(channel: Optional[str] = None, status: Optional[str] = None,
                      limit: int = 50) -> List[AlertDelivery]:
-    query = "SELECT * FROM alert_deliveries WHERE 1=1"
-    params: list = []
+    query = select(alert_deliveries)
     if channel is not None:
-        query += " AND channel = ?"
-        params.append(channel)
+        query = query.where(alert_deliveries.c.channel == channel)
     if status is not None:
-        query += " AND status = ?"
-        params.append(status)
-    query += " ORDER BY id DESC LIMIT ?"
-    params.append(limit)
+        query = query.where(alert_deliveries.c.status == status)
+    query = query.order_by(alert_deliveries.c.id.desc()).limit(limit)
     with get_connection() as conn:
-        rows = conn.execute(query, params).fetchall()
+        rows = conn.execute(query).fetchall()
     return [_row_to_delivery(r) for r in rows]
 
 
 def last_success_at(channel: str) -> Optional[str]:
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT MAX(sent_at) AS ts FROM alert_deliveries WHERE channel = ? AND status = 'SENT'",
-            (channel,),
-        ).fetchone()
-    return row["ts"] if row else None
+        ts = conn.execute(
+            select(func.max(alert_deliveries.c.sent_at))
+            .where(alert_deliveries.c.channel == channel, alert_deliveries.c.status == "SENT")
+        ).scalar()
+    return ts.isoformat() if ts else None
 
 
 def last_error_at(channel: str) -> Optional[str]:
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT MAX(last_attempt_at) AS ts FROM alert_deliveries WHERE channel = ? AND status = 'FAILED'",
-            (channel,),
-        ).fetchone()
-    return row["ts"] if row else None
+        ts = conn.execute(
+            select(func.max(alert_deliveries.c.last_attempt_at))
+            .where(alert_deliveries.c.channel == channel, alert_deliveries.c.status == "FAILED")
+        ).scalar()
+    return ts.isoformat() if ts else None
 
 
 def record_test_success(provider: str) -> str:
@@ -174,20 +160,21 @@ def record_test_success(provider: str) -> str:
     provider's own name, e.g. "telegram" or "mock", so a mock-provider test
     can never read as proof the real Telegram channel works). Returns the
     stored timestamp."""
-    now = _now_iso()
+    now = _now()
     with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO notification_test_sends (provider, last_success_at) VALUES (?, ?) "
-            "ON CONFLICT(provider) DO UPDATE SET last_success_at = excluded.last_success_at",
-            (provider, now),
+        stmt = pg_insert(notification_test_sends).values(provider=provider, last_success_at=now)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["provider"], set_={"last_success_at": stmt.excluded.last_success_at},
         )
+        conn.execute(stmt)
         conn.commit()
-    return now
+    return now.isoformat()
 
 
 def last_test_success_at(provider: str) -> Optional[str]:
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT last_success_at FROM notification_test_sends WHERE provider = ?", (provider,),
-        ).fetchone()
-    return row["last_success_at"] if row else None
+        ts = conn.execute(
+            select(notification_test_sends.c.last_success_at)
+            .where(notification_test_sends.c.provider == provider)
+        ).scalar()
+    return ts.isoformat() if ts else None

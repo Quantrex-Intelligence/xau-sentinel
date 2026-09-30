@@ -1,44 +1,18 @@
-"""SQLite persistence for the knowledge/RAG layer. Two new tables, added the
-established way: CREATE TABLE IF NOT EXISTS through
-journal.database.get_connection() (calling it, never editing it) — same
-pattern as risk/fundednext_journal.py and ai/assistant.py's ai_messages
-table. The frozen Stage 1 schema in journal/database.py is never touched.
+"""PostgreSQL persistence for the knowledge/RAG layer (DEP-002). Tables are
+defined in journal/schema.py alongside every other table; this module only
+builds and executes Core queries against them through
+journal.database.get_connection().
 """
 import json
-import sqlite3
 from typing import List, Optional
 
+from sqlalchemy import select, insert, update, func
+
 from journal.database import get_connection
+from journal.schema import knowledge_documents, knowledge_chunks
 from ai.knowledge.chunking import chunk_text
 from ai.knowledge.embeddings import BaseEmbeddingProvider, get_embedding_provider
 from ai.knowledge.models import KnowledgeDocument
-
-TABLE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS knowledge_documents (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT NOT NULL,
-    category TEXT NOT NULL,
-    version TEXT NOT NULL,
-    title TEXT NOT NULL,
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS knowledge_chunks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    document_id INTEGER NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
-    chunk_index INTEGER NOT NULL,
-    text TEXT NOT NULL,
-    embedding TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-"""
-
-
-def init_table() -> None:
-    with get_connection() as conn:
-        conn.executescript(TABLE_SCHEMA)
-        conn.commit()
 
 
 def add_document(source: str, category: str, version: str, title: str, content: str,
@@ -55,34 +29,37 @@ def add_document(source: str, category: str, version: str, title: str, content: 
 
     with get_connection() as conn:
         conn.execute(
-            "UPDATE knowledge_documents SET is_active = 0 WHERE source = ? AND is_active = 1",
-            (source,),
+            update(knowledge_documents)
+            .where(knowledge_documents.c.source == source, knowledge_documents.c.is_active.is_(True))
+            .values(is_active=False)
         )
-        cur = conn.execute(
-            "INSERT INTO knowledge_documents (source, category, version, title, is_active) VALUES (?, ?, ?, ?, 1)",
-            (source, category, version, title),
+        result = conn.execute(
+            insert(knowledge_documents)
+            .values(source=source, category=category, version=version, title=title, is_active=True)
+            .returning(knowledge_documents.c.id)
         )
-        document_id = cur.lastrowid
+        document_id = result.scalar_one()
         for i, (chunk, emb) in enumerate(zip(chunks_text, embeddings)):
             conn.execute(
-                "INSERT INTO knowledge_chunks (document_id, chunk_index, text, embedding) VALUES (?, ?, ?, ?)",
-                (document_id, i, chunk, json.dumps(emb)),
+                insert(knowledge_chunks).values(
+                    document_id=document_id, chunk_index=i, text=chunk, embedding=json.dumps(emb),
+                )
             )
         conn.commit()
     return document_id
 
 
 def list_documents(active_only: bool = True) -> List[KnowledgeDocument]:
-    query = "SELECT * FROM knowledge_documents"
+    query = select(knowledge_documents)
     if active_only:
-        query += " WHERE is_active = 1"
-    query += " ORDER BY category, source"
+        query = query.where(knowledge_documents.c.is_active.is_(True))
+    query = query.order_by(knowledge_documents.c.category, knowledge_documents.c.source)
     with get_connection() as conn:
-        rows = conn.execute(query).fetchall()
+        rows = conn.execute(query).mappings().fetchall()
     return [
         KnowledgeDocument(
             id=r["id"], source=r["source"], category=r["category"], version=r["version"],
-            title=r["title"], is_active=bool(r["is_active"]), created_at=r["created_at"],
+            title=r["title"], is_active=r["is_active"], created_at=r["created_at"].isoformat(),
         )
         for r in rows
     ]
@@ -93,31 +70,21 @@ def get_active_chunks(categories: Optional[List[str]] = None) -> List[dict]:
     its parent document's metadata (source/category/version/title) —
     exactly what retrieval.py needs for scoring and source attribution,
     with no second lookup."""
-    query = """
-        SELECT c.id AS chunk_id, c.document_id, c.chunk_index, c.text, c.embedding,
-               d.source, d.category, d.version, d.title
-        FROM knowledge_chunks c
-        JOIN knowledge_documents d ON d.id = c.document_id
-        WHERE d.is_active = 1
-    """
-    params: list = []
+    query = (
+        select(
+            knowledge_chunks.c.id.label("chunk_id"), knowledge_chunks.c.document_id,
+            knowledge_chunks.c.chunk_index, knowledge_chunks.c.text, knowledge_chunks.c.embedding,
+            knowledge_documents.c.source, knowledge_documents.c.category,
+            knowledge_documents.c.version, knowledge_documents.c.title,
+        )
+        .select_from(knowledge_chunks.join(knowledge_documents, knowledge_documents.c.id == knowledge_chunks.c.document_id))
+        .where(knowledge_documents.c.is_active.is_(True))
+    )
     if categories:
-        placeholders = ", ".join("?" for _ in categories)
-        query += f" AND d.category IN ({placeholders})"
-        params.extend(categories)
+        query = query.where(knowledge_documents.c.category.in_(categories))
 
-    try:
-        with get_connection() as conn:
-            rows = conn.execute(query, params).fetchall()
-    except sqlite3.OperationalError as exc:
-        # A caller that never ran init_table() against this DB (e.g. the
-        # app hasn't started yet, or a test predating Stage 5) genuinely
-        # has no knowledge stored — identical in effect to an empty
-        # knowledge base, so this degrades the same way rather than
-        # crashing every caller of retrieve().
-        if "no such table" in str(exc):
-            return []
-        raise
+    with get_connection() as conn:
+        rows = conn.execute(query).mappings().fetchall()
 
     return [
         {
@@ -130,8 +97,8 @@ def get_active_chunks(categories: Optional[List[str]] = None) -> List[dict]:
 
 
 def count_documents(active_only: bool = True) -> int:
-    query = "SELECT COUNT(*) AS n FROM knowledge_documents"
+    query = select(func.count()).select_from(knowledge_documents)
     if active_only:
-        query += " WHERE is_active = 1"
+        query = query.where(knowledge_documents.c.is_active.is_(True))
     with get_connection() as conn:
-        return conn.execute(query).fetchone()["n"]
+        return conn.execute(query).scalar_one()

@@ -21,8 +21,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from sqlalchemy import select, insert
+
 import config
 from journal.database import get_connection
+from journal.schema import ai_messages
 from ai import context as context_builder
 from ai import prompts
 from ai.knowledge import retrieval as knowledge_retrieval
@@ -35,46 +38,29 @@ from ai.tools import execute as execute_tool
 from ai.tools.registry import get_spec as get_tool_spec, to_provider_format as tool_specs_for_provider
 from ai.tools.schemas import ToolUsageOut
 
-TABLE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS ai_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id TEXT NOT NULL,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-"""
-
 # Caps how much prior conversation gets replayed to the provider each turn —
 # keeps token usage bounded without needing to summarize old turns for V1.
 MAX_HISTORY_MESSAGES = 20
 
 
-def init_table() -> None:
-    with get_connection() as conn:
-        conn.executescript(TABLE_SCHEMA)
-        conn.commit()
-
-
 def _load_history(conversation_id: str) -> List[dict]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT role, content FROM ai_messages WHERE conversation_id = ? ORDER BY id ASC",
-            (conversation_id,),
+            select(ai_messages.c.role, ai_messages.c.content)
+            .where(ai_messages.c.conversation_id == conversation_id)
+            .order_by(ai_messages.c.id.asc())
         ).fetchall()
-    history = [{"role": r["role"], "content": r["content"]} for r in rows]
+    history = [{"role": r.role, "content": r.content} for r in rows]
     return history[-MAX_HISTORY_MESSAGES:]
 
 
 def _save_turn(conversation_id: str, user_message: str, assistant_message: str) -> None:
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, 'user', ?)",
-            (conversation_id, user_message),
+            insert(ai_messages).values(conversation_id=conversation_id, role="user", content=user_message)
         )
         conn.execute(
-            "INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, 'assistant', ?)",
-            (conversation_id, assistant_message),
+            insert(ai_messages).values(conversation_id=conversation_id, role="assistant", content=assistant_message)
         )
         conn.commit()
 

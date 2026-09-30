@@ -1,14 +1,16 @@
 """Trade CRUD, automatic market-context capture, event/alert logging, and journal analytics."""
 import json
-import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from sqlalchemy import select, insert, update, func
+from sqlalchemy.engine import Connection
 
 import config
 from journal.database import get_connection
+from journal.schema import trades, journal_context, market_events, alerts
 
 
 def session_now() -> datetime:
@@ -37,7 +39,7 @@ EXIT_FIELDS = [
 ]
 
 
-def create_trade(data: dict, context: dict, conn: Optional[sqlite3.Connection] = None) -> int:
+def create_trade(data: dict, context: dict, conn: Optional[Connection] = None) -> int:
     """Inserts a trade plus the market context captured automatically at the
     same moment, so nothing the system already knows has to be typed twice.
 
@@ -53,21 +55,16 @@ def create_trade(data: dict, context: dict, conn: Optional[sqlite3.Connection] =
             return trade_id
 
     trade_row = {field: data.get(field) for field in TRADE_FIELDS}
+
+    result = conn.execute(
+        insert(trades).values(**trade_row, status="OPEN").returning(trades.c.id)
+    )
+    trade_id = result.scalar_one()
+
     context_row = {field: context.get(field) for field in CONTEXT_FIELDS}
-
-    cur = conn.execute(
-        f"""INSERT INTO trades ({', '.join(TRADE_FIELDS)}, status)
-            VALUES ({', '.join(':' + f for f in TRADE_FIELDS)}, 'OPEN')""",
-        trade_row,
-    )
-    trade_id = cur.lastrowid
-
     context_row["trade_id"] = trade_id
-    conn.execute(
-        f"""INSERT INTO journal_context (trade_id, {', '.join(CONTEXT_FIELDS)})
-            VALUES (:trade_id, {', '.join(':' + f for f in CONTEXT_FIELDS)})""",
-        context_row,
-    )
+    conn.execute(insert(journal_context).values(**context_row))
+
     return trade_id
 
 
@@ -78,46 +75,51 @@ def close_trade(trade_id: int, exit_data: dict) -> bool:
     closed trade's result/pnl/r_multiple, including a race where two closes
     pass the route's pre-check at the same time."""
     row = {field: exit_data.get(field) for field in EXIT_FIELDS}
-    row["trade_id"] = trade_id
     with get_connection() as conn:
-        cur = conn.execute(
-            f"""UPDATE trades SET {', '.join(f'{f} = :{f}' for f in EXIT_FIELDS)}, status = 'CLOSED'
-                WHERE id = :trade_id AND status = 'OPEN'""",
-            row,
+        result = conn.execute(
+            update(trades)
+            .where(trades.c.id == trade_id, trades.c.status == "OPEN")
+            .values(**row, status="CLOSED")
         )
         conn.commit()
-        return cur.rowcount == 1
+        return result.rowcount == 1
 
 
 def list_trades(filters: Optional[dict] = None) -> pd.DataFrame:
-    query = """SELECT t.*, jc.h4_bias, jc.h1_bias, jc.m15_bias, jc.m5_bias, jc.regime,
-                      jc.liquidity, jc.mss, jc.displacement
-               FROM trades t LEFT JOIN journal_context jc ON jc.trade_id = t.id
-               WHERE 1=1"""
-    params = {}
+    query = (
+        select(
+            trades,
+            journal_context.c.h4_bias, journal_context.c.h1_bias, journal_context.c.m15_bias,
+            journal_context.c.m5_bias, journal_context.c.regime, journal_context.c.liquidity,
+            journal_context.c.mss, journal_context.c.displacement,
+        )
+        .select_from(trades.outerjoin(journal_context, journal_context.c.trade_id == trades.c.id))
+    )
     filters = filters or {}
     for column in ("session", "setup", "direction"):
         if filters.get(column):
-            query += f" AND t.{column} = :{column}"
-            params[column] = filters[column]
+            query = query.where(trades.c[column] == filters[column])
     if filters.get("regime"):
-        query += " AND t.market_regime = :regime"
-        params["regime"] = filters["regime"]
-    query += " ORDER BY t.trade_date DESC, t.trade_time DESC"
+        query = query.where(trades.c.market_regime == filters["regime"])
+    query = query.order_by(trades.c.trade_date.desc(), trades.c.trade_time.desc())
 
     with get_connection() as conn:
-        return pd.read_sql_query(query, conn, params=params)
+        return pd.read_sql_query(query, conn)
 
 
 def get_trade(trade_id: int) -> Optional[dict]:
+    query = (
+        select(
+            trades,
+            journal_context.c.h4_bias, journal_context.c.h1_bias, journal_context.c.m15_bias,
+            journal_context.c.m5_bias, journal_context.c.regime, journal_context.c.liquidity,
+            journal_context.c.mss, journal_context.c.displacement,
+        )
+        .select_from(trades.outerjoin(journal_context, journal_context.c.trade_id == trades.c.id))
+        .where(trades.c.id == trade_id)
+    )
     with get_connection() as conn:
-        row = conn.execute(
-            """SELECT t.*, jc.h4_bias, jc.h1_bias, jc.m15_bias, jc.m5_bias, jc.regime,
-                      jc.liquidity, jc.mss, jc.displacement
-               FROM trades t LEFT JOIN journal_context jc ON jc.trade_id = t.id
-               WHERE t.id = ?""",
-            (trade_id,),
-        ).fetchone()
+        row = conn.execute(query).mappings().fetchone()
         return dict(row) if row else None
 
 
@@ -164,15 +166,18 @@ def log_event(event_type: str, description: str, timeframe: str = "",
     event_time = event_time or datetime.now(timezone.utc)
     with get_connection() as conn:
         existing = conn.execute(
-            """SELECT 1 FROM market_events
-               WHERE event_time = ? AND event_type = ? AND description = ? LIMIT 1""",
-            (event_time.isoformat(), event_type, description),
+            select(market_events.c.id).where(
+                market_events.c.event_time == event_time,
+                market_events.c.event_type == event_type,
+                market_events.c.description == description,
+            ).limit(1)
         ).fetchone()
         if existing:
             return
         conn.execute(
-            "INSERT INTO market_events (event_time, event_type, description, timeframe) VALUES (?, ?, ?, ?)",
-            (event_time.isoformat(), event_type, description, timeframe),
+            insert(market_events).values(
+                event_time=event_time, event_type=event_type, description=description, timeframe=timeframe,
+            )
         )
         conn.commit()
 
@@ -182,8 +187,10 @@ def log_alert(level: str, message: str, direction: str = "", details: Optional[d
     alert_time = alert_time or datetime.now(timezone.utc)
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO alerts (alert_time, level, direction, message, details) VALUES (?, ?, ?, ?, ?)",
-            (alert_time.isoformat(), level, direction, message, json.dumps(details or {})),
+            insert(alerts).values(
+                alert_time=alert_time, level=level, direction=direction,
+                message=message, details=json.dumps(details or {}),
+            )
         )
         conn.commit()
 
@@ -198,12 +205,14 @@ def has_recent_alert(level: str, direction: str, dedup_key: str, lookback: int =
     description) dedup already works for market events."""
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT details FROM alerts WHERE level = ? AND direction = ? ORDER BY id DESC LIMIT ?",
-            (level, direction, lookback),
+            select(alerts.c.details)
+            .where(alerts.c.level == level, alerts.c.direction == direction)
+            .order_by(alerts.c.id.desc())
+            .limit(lookback)
         ).fetchall()
     for row in rows:
         try:
-            details = json.loads(row["details"] or "{}")
+            details = json.loads(row[0] or "{}")
         except (TypeError, ValueError):
             continue
         if details.get("dedup_key") == dedup_key:
@@ -212,10 +221,9 @@ def has_recent_alert(level: str, direction: str, dedup_key: str, lookback: int =
 
 
 def recent_events(limit: int = 10) -> pd.DataFrame:
+    query = select(market_events).order_by(market_events.c.event_time.desc()).limit(limit)
     with get_connection() as conn:
-        return pd.read_sql_query(
-            "SELECT * FROM market_events ORDER BY event_time DESC LIMIT ?", conn, params=(limit,)
-        )
+        return pd.read_sql_query(query, conn)
 
 
 def today_r_total(today: Optional[str] = None) -> float:
@@ -225,15 +233,14 @@ def today_r_total(today: Optional[str] = None) -> float:
     day = today or session_now().date().isoformat()
     with get_connection() as conn:
         row = conn.execute(
-            """SELECT COALESCE(SUM(r_multiple), 0) AS total FROM trades
-               WHERE status = 'CLOSED' AND trade_date = ?""",
-            (day,),
+            select(func.coalesce(func.sum(trades.c.r_multiple), 0)).where(
+                trades.c.status == "CLOSED", trades.c.trade_date == day,
+            )
         ).fetchone()
-        return round(float(row["total"]), 2)
+        return round(float(row[0]), 2)
 
 
 def recent_alerts(limit: int = 10) -> pd.DataFrame:
+    query = select(alerts).order_by(alerts.c.alert_time.desc()).limit(limit)
     with get_connection() as conn:
-        return pd.read_sql_query(
-            "SELECT * FROM alerts ORDER BY alert_time DESC LIMIT ?", conn, params=(limit,)
-        )
+        return pd.read_sql_query(query, conn)
