@@ -4,11 +4,16 @@ straight into journal.trades.create_trade's context dict — no separate
 context-computation path. It also captures a FundedNext account/risk
 snapshot at the same moment (see risk/fundednext_journal.py) — a one-time
 INSERT, never updated, so historical trades never drift as the live
-account changes later."""
+account changes later. The trade and its snapshot are committed in ONE
+transaction (Stage 23D, VAL-029): a trade is never saved without its risk
+snapshot."""
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 
 import config
 from journal import trades as trades_repo
+from journal.database import get_connection
 from risk import settings_store
 from risk.fundednext import compute_status
 from risk.fundednext_journal import get_snapshot as get_fundednext_snapshot
@@ -20,6 +25,8 @@ from api.schemas import AnalyticsOut, TradeCloseIn, TradeCreateIn, TradeOut
 from api.snapshot import build_snapshot
 
 router = APIRouter(prefix="/api/journal", tags=["journal"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.get("/trades", response_model=list[TradeOut])
@@ -76,22 +83,43 @@ def create_trade(payload: TradeCreateIn):
         "displacement": (snapshot.displacement or "").title() or None,
         "session": snapshot.session,
     }
-    trade_id = trades_repo.create_trade(trade_data, context)
-
-    fn_settings = settings_store.get_settings()
-    account_type = AccountType(fn_settings["account_type"])
-    fn_status = compute_status(account_type, Phase(fn_settings["phase"]), fn_settings["consistency_enabled"])
-    rules = get_rules(account_type)
-    save_fundednext_snapshot(trade_id, fn_status, rules.daily_loss_pct, rules.max_loss_pct)
+    # Stage 23D, VAL-029: the FundedNext status (which may call MT5) is
+    # computed BEFORE anything is written, and the trade + its snapshot are
+    # then inserted on one connection and committed together. Any failure
+    # rolls back both (the connection closes uncommitted), so there is never
+    # a trade without its risk snapshot, and the client gets a clear 500
+    # saying nothing was saved instead of a bare traceback.
+    try:
+        fn_settings = settings_store.get_settings()
+        account_type = AccountType(fn_settings["account_type"])
+        fn_status = compute_status(account_type, Phase(fn_settings["phase"]), fn_settings["consistency_enabled"])
+        rules = get_rules(account_type)
+        with get_connection() as conn:
+            trade_id = trades_repo.create_trade(trade_data, context, conn=conn)
+            save_fundednext_snapshot(trade_id, fn_status, rules.daily_loss_pct, rules.max_loss_pct, conn=conn)
+            conn.commit()
+    except Exception as exc:
+        logger.exception("Trade creation failed; nothing was saved")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Trade not saved: recording the trade with its FundedNext risk snapshot failed "
+                   f"({type(exc).__name__}). Nothing was written; please retry.",
+        ) from exc
 
     return TradeOut(**trades_repo.get_trade(trade_id))
 
 
 @router.patch("/trades/{trade_id}/close", response_model=TradeOut)
 def close_trade(trade_id: int, payload: TradeCloseIn):
-    if trades_repo.get_trade(trade_id) is None:
+    trade = trades_repo.get_trade(trade_id)
+    if trade is None:
         raise HTTPException(status_code=404, detail="Trade not found")
-    trades_repo.close_trade(trade_id, payload.model_dump())
+    # Stage 23D, VAL-024: a close is only valid on an OPEN trade. Without
+    # this a re-submitted close silently overwrote result/pnl/r_multiple
+    # (and nulled any field omitted the second time). close_trade()'s own
+    # `status = 'OPEN'` guard also catches a concurrent double-close.
+    if trade["status"] != "OPEN" or not trades_repo.close_trade(trade_id, payload.model_dump()):
+        raise HTTPException(status_code=409, detail=f"Trade {trade_id} is already closed")
     return TradeOut(**trades_repo.get_trade(trade_id))
 
 

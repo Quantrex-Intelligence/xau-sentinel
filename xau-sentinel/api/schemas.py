@@ -3,9 +3,9 @@ field-for-field (analysis/structure.py, analysis/setup.py, analysis/regime.py,
 analysis/liquidity.py) — they exist to give the API a typed, documented
 contract, not to add or reshape any information the engine doesn't already
 produce."""
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 class CandleOut(BaseModel):
@@ -129,7 +129,12 @@ class TradeCreateIn(BaseModel):
 
 class TradeCloseIn(BaseModel):
     exit_price: float
-    result: str  # "WIN" | "LOSS" | "BE"
+    # Stage 23D, VAL-032: restricted to the three values
+    # journal.trades.compute_analytics() counts. Any other value used to be
+    # stored and counted in total_trades but in none of wins/losses/
+    # breakeven, silently deflating the win rate. Case and surrounding
+    # whitespace are normalized first ("win" -> "WIN"); anything else is a 422.
+    result: Literal["WIN", "LOSS", "BE"]
     pnl: Optional[float] = None
     r_multiple: Optional[float] = None
     duration_minutes: Optional[float] = None
@@ -137,6 +142,11 @@ class TradeCloseIn(BaseModel):
     rule_followed: Optional[str] = None
     mistake: Optional[str] = None
     exit_notes: Optional[str] = None
+
+    @field_validator("result", mode="before")
+    @classmethod
+    def _normalize_result(cls, value):
+        return value.strip().upper() if isinstance(value, str) else value
 
 
 class TradeOut(BaseModel):

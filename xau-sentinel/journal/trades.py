@@ -1,5 +1,6 @@
 """Trade CRUD, automatic market-context capture, event/alert logging, and journal analytics."""
 import json
+import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -36,40 +37,56 @@ EXIT_FIELDS = [
 ]
 
 
-def create_trade(data: dict, context: dict) -> int:
+def create_trade(data: dict, context: dict, conn: Optional[sqlite3.Connection] = None) -> int:
     """Inserts a trade plus the market context captured automatically at the
-    same moment, so nothing the system already knows has to be typed twice."""
+    same moment, so nothing the system already knows has to be typed twice.
+
+    With no `conn`, opens its own connection and commits. With a caller's
+    `conn` it writes into that connection's open transaction and does NOT
+    commit (Stage 23D, VAL-029) -- api/routes/journal.py::create_trade uses
+    this to make the trade insert and its FundedNext snapshot insert one
+    atomic unit: both commit together or neither is written."""
+    if conn is None:
+        with get_connection() as own_conn:
+            trade_id = create_trade(data, context, conn=own_conn)
+            own_conn.commit()
+            return trade_id
+
     trade_row = {field: data.get(field) for field in TRADE_FIELDS}
     context_row = {field: context.get(field) for field in CONTEXT_FIELDS}
 
-    with get_connection() as conn:
-        cur = conn.execute(
-            f"""INSERT INTO trades ({', '.join(TRADE_FIELDS)}, status)
-                VALUES ({', '.join(':' + f for f in TRADE_FIELDS)}, 'OPEN')""",
-            trade_row,
-        )
-        trade_id = cur.lastrowid
+    cur = conn.execute(
+        f"""INSERT INTO trades ({', '.join(TRADE_FIELDS)}, status)
+            VALUES ({', '.join(':' + f for f in TRADE_FIELDS)}, 'OPEN')""",
+        trade_row,
+    )
+    trade_id = cur.lastrowid
 
-        context_row["trade_id"] = trade_id
-        conn.execute(
-            f"""INSERT INTO journal_context (trade_id, {', '.join(CONTEXT_FIELDS)})
-                VALUES (:trade_id, {', '.join(':' + f for f in CONTEXT_FIELDS)})""",
-            context_row,
-        )
-        conn.commit()
-        return trade_id
+    context_row["trade_id"] = trade_id
+    conn.execute(
+        f"""INSERT INTO journal_context (trade_id, {', '.join(CONTEXT_FIELDS)})
+            VALUES (:trade_id, {', '.join(':' + f for f in CONTEXT_FIELDS)})""",
+        context_row,
+    )
+    return trade_id
 
 
-def close_trade(trade_id: int, exit_data: dict) -> None:
+def close_trade(trade_id: int, exit_data: dict) -> bool:
+    """Closes an OPEN trade. Returns False (writing nothing) when no OPEN
+    trade with this id exists -- the `status = 'OPEN'` guard (Stage 23D,
+    VAL-024) means a re-submitted close can never overwrite an already-
+    closed trade's result/pnl/r_multiple, including a race where two closes
+    pass the route's pre-check at the same time."""
     row = {field: exit_data.get(field) for field in EXIT_FIELDS}
     row["trade_id"] = trade_id
     with get_connection() as conn:
-        conn.execute(
+        cur = conn.execute(
             f"""UPDATE trades SET {', '.join(f'{f} = :{f}' for f in EXIT_FIELDS)}, status = 'CLOSED'
-                WHERE id = :trade_id""",
+                WHERE id = :trade_id AND status = 'OPEN'""",
             row,
         )
         conn.commit()
+        return cur.rowcount == 1
 
 
 def list_trades(filters: Optional[dict] = None) -> pd.DataFrame:
@@ -112,16 +129,22 @@ def compute_analytics(df: pd.DataFrame) -> dict:
         return {"total_trades": 0, "wins": 0, "losses": 0, "breakeven": 0,
                 "win_rate": 0.0, "total_r": 0.0, "avg_r": 0.0, "profit_factor": None}
 
-    wins = int((closed["result"] == "WIN").sum())
-    losses = int((closed["result"] == "LOSS").sum())
-    breakeven = int((closed["result"] == "BE").sum())
+    # Stage 23D, VAL-032: the API now only accepts WIN/LOSS/BE, but a row
+    # written before that (or via the Streamlit form) may hold "win" or
+    # " Loss ". Normalize case/whitespace here too so such a trade still
+    # counts toward wins/losses/breakeven instead of deflating the win rate.
+    result = closed["result"].map(lambda v: v.strip().upper() if isinstance(v, str) else "")
+
+    wins = int((result == "WIN").sum())
+    losses = int((result == "LOSS").sum())
+    breakeven = int((result == "BE").sum())
 
     r_values = closed["r_multiple"].dropna()
     total_r = float(r_values.sum())
     avg_r = float(r_values.mean()) if len(r_values) else 0.0
 
-    gross_win = float(closed.loc[closed["result"] == "WIN", "r_multiple"].sum())
-    gross_loss = float(-closed.loc[closed["result"] == "LOSS", "r_multiple"].sum())
+    gross_win = float(closed.loc[result == "WIN", "r_multiple"].sum())
+    gross_loss = float(-closed.loc[result == "LOSS", "r_multiple"].sum())
     profit_factor = round(gross_win / gross_loss, 2) if gross_loss > 0 else None
 
     win_rate = round(wins / total * 100, 1)

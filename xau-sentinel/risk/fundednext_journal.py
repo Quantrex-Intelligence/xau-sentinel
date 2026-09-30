@@ -8,11 +8,19 @@ EXISTS — the frozen Stage 1 schema in journal/database.py's SCHEMA string is
 never edited. Reuses journal.database.get_connection() (calling it, not
 modifying it) so this data lives in the same SQLite file as everything else
 rather than inventing a third storage mechanism.
+
+One row per trade is structurally enforced (Stage 23D, VAL-030) by a UNIQUE
+index on trade_id rather than a table-level UNIQUE constraint, because CREATE
+TABLE IF NOT EXISTS never migrates an existing database -- see init_table().
 """
+import logging
+import sqlite3
 from typing import Optional
 
 from journal.database import get_connection
 from risk.models import FundedNextStatus
+
+logger = logging.getLogger(__name__)
 
 TABLE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS fundednext_context (
@@ -44,18 +52,53 @@ FIELDS = [
 ]
 
 
+UNIQUE_INDEX = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fundednext_context_trade_id
+    ON fundednext_context (trade_id);
+"""
+
+
 def init_table() -> None:
+    """Creates the table if missing, then enforces one snapshot per trade
+    (Stage 23D, VAL-030) with a UNIQUE index -- CREATE UNIQUE INDEX IF NOT
+    EXISTS also applies to a database created before this stage.
+
+    An older database may already hold duplicate rows for a trade, which
+    would make the index creation fail and the app crash on startup. Those
+    are removed first, keeping the EARLIEST row (lowest id) per trade_id:
+    the snapshot is meant to be captured once at trade creation and never
+    changed, so the first row is the genuine creation-time capture and any
+    later row can only be an erroneous re-write. On a clean database the
+    DELETE matches nothing. Dedupe and index commit together."""
     with get_connection() as conn:
         conn.executescript(TABLE_SCHEMA)
+        removed = conn.execute(
+            """DELETE FROM fundednext_context
+               WHERE id NOT IN (SELECT MIN(id) FROM fundednext_context GROUP BY trade_id)"""
+        ).rowcount
+        if removed:
+            logger.warning(
+                "fundednext_context: removed %d duplicate snapshot row(s), keeping the earliest "
+                "per trade, before enforcing UNIQUE(trade_id) (VAL-030)", removed,
+            )
+        conn.execute(UNIQUE_INDEX)
         conn.commit()
 
 
 def save_snapshot(trade_id: int, status: FundedNextStatus, rules_daily_loss_pct: Optional[float],
-                   rules_max_loss_pct: Optional[float]) -> None:
+                   rules_max_loss_pct: Optional[float],
+                   conn: Optional[sqlite3.Connection] = None) -> None:
     """Writes exactly one row per trade — an INSERT, never an UPDATE. There
     is deliberately no function anywhere in this module that mutates an
     existing row, so a trade's captured context cannot be overwritten by a
-    later call, however the live account changes afterward."""
+    later call, however the live account changes afterward. A second call
+    for the same trade raises sqlite3.IntegrityError via the UNIQUE index
+    (Stage 23D, VAL-030).
+
+    With no `conn`, opens its own connection and commits. With a caller's
+    `conn` it writes into that open transaction and does NOT commit (Stage
+    23D, VAL-029), so api/routes/journal.py can commit the trade and its
+    snapshot atomically."""
     row = {
         "trade_id": trade_id,
         "data_available": int(status.data_available),
@@ -74,13 +117,14 @@ def save_snapshot(trade_id: int, status: FundedNextStatus, rules_daily_loss_pct:
         "safety_level": status.safety_level.value,
         "reason": status.reason,
     }
-    with get_connection() as conn:
-        conn.execute(
-            f"""INSERT INTO fundednext_context ({', '.join(FIELDS)})
-                VALUES ({', '.join(':' + f for f in FIELDS)})""",
-            row,
-        )
-        conn.commit()
+    sql = f"""INSERT INTO fundednext_context ({', '.join(FIELDS)})
+              VALUES ({', '.join(':' + f for f in FIELDS)})"""
+    if conn is not None:
+        conn.execute(sql, row)
+        return
+    with get_connection() as own_conn:
+        own_conn.execute(sql, row)
+        own_conn.commit()
 
 
 def get_snapshot(trade_id: int) -> Optional[dict]:
