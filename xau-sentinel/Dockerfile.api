@@ -38,4 +38,8 @@ ENTRYPOINT ["sh", "-c", "for f in /run/secrets/*; do [ -f \"$f\" ] || continue; 
 # time, so the proxy always closes an idle connection first. With uvicorn's
 # 5 s default, a reused connection could be reset mid-request (seen once as a
 # proxied ECONNRESET -> 500).
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "75"]
+#
+# DEP-002: `alembic upgrade head` runs once, every container start, before
+# uvicorn -- it's the migration runner now (api/main.py's lifespan no
+# longer creates/alters any table). A no-op when already at head.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn api.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75"]

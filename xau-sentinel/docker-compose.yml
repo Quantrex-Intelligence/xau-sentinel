@@ -1,11 +1,14 @@
-# Local production-like stack (Stage 23). Two services only: the app's
-# persistence layer is SQLite (raw sqlite3, no ORM/migrations), so there is
-# no PostgreSQL service -- see docs/deployment/DEPLOYMENT_ISSUES.md.
+# Local production-like stack (Stage 23). DEP-002: persistence moved from
+# SQLite to PostgreSQL (SQLAlchemy Core + Alembic) -- `postgres` is the
+# persistence layer now; api runs `alembic upgrade head` before serving
+# (see Dockerfile.api's CMD). DEP-001: api/web both take API_AUTH_TOKEN /
+# NEXT_PUBLIC_API_AUTH_TOKEN, blank (no auth) unless set in .env.
 #
 # The browser only talks to web (same origin); web proxies /api and /ws to
 # api over the compose network. api stays published on localhost too, for
 # scripts and the E2E checklists. Ports are published on loopback only, on
-# both IPv4 and IPv6, because "localhost" may resolve to ::1 first.
+# both IPv4 and IPv6, because "localhost" may resolve to ::1 first. postgres
+# publishes no host port -- only api reaches it, over the compose network.
 #
 # Settings come from the gitignored .env via env_file. The Telegram
 # credentials are the exception: they are passed as file-mounted secrets
@@ -28,6 +31,7 @@ services:
       MODE: mock  # MT5 cannot run inside a Linux container
       API_DOCS_ENABLED: "false"
       XAU_API_CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      DATABASE_URL: postgresql+psycopg://xau:${POSTGRES_PASSWORD}@postgres:5432/xau_sentinel
       # Blanked here so env_file can't expose them; the real values are
       # exported from /run/secrets by the image's entrypoint.
       TELEGRAM_BOT_TOKEN: ""
@@ -37,11 +41,30 @@ services:
       - telegram_bot_token
       - telegram_chat_id
       - api_auth_token
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - xau-data:/app/data
     ports:
       - "127.0.0.1:8000:8000"
       - "[::1]:8000:8000"
+    restart: unless-stopped
+    logging: *default-logging
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: xau
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: xau_sentinel
+    volumes:
+      - xau-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xau -d xau_sentinel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
     logging: *default-logging
 
@@ -74,3 +97,4 @@ secrets:
 
 volumes:
   xau-data:
+  xau-postgres-data:
