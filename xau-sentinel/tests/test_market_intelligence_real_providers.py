@@ -99,6 +99,27 @@ def test_macro_snapshot_available_with_all_series_succeeding(monkeypatch):
     assert snapshot.freshness == "LIVE"
 
 
+def test_fred_api_key_never_appears_in_the_snapshot_or_in_logs(monkeypatch, caplog):
+    """FRED's key travels as a `params={"api_key": ...}` query param (real.py
+    lines 81/299), the same category of leak risk VAL-036 already covers
+    generically for every httpx request (log_safety.py pins httpx/httpcore
+    to WARNING regardless of the root logger's own level, which is exactly
+    what config.py/api/main.py's DEP-002-era logging fix raised) -- this
+    proves the key doesn't leak through the two paths actually reachable
+    from this app: the provider's own returned snapshot object, and
+    anything logged during a real fetch."""
+    secret = "sk-fred-secret-should-never-leak-anywhere"
+    monkeypatch.setattr(config, "MARKET_INTEL_FRED_API_KEY", secret)
+    monkeypatch.setattr(real.http_client, "get_json", _make_fake_get_json(fred_series=FRED_SERIES))
+
+    with caplog.at_level("DEBUG"):
+        snapshot = RealMacroProvider().get_macro_snapshot()
+
+    assert secret not in repr(snapshot)
+    assert secret not in str(vars(snapshot))
+    assert all(secret not in r.getMessage() for r in caplog.records)
+
+
 def test_macro_snapshot_partial_failure_still_available(monkeypatch):
     monkeypatch.setattr(config, "MARKET_INTEL_FRED_API_KEY", FRED_KEY)
     monkeypatch.setattr(

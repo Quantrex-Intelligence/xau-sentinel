@@ -2,6 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+import config
 from api.main import app
 
 
@@ -35,3 +36,10 @@ def test_market_intelligence_news_articles_have_no_duplicate_headlines(api_clien
     body = api_client.get("/api/market-intelligence").json()
     headlines = [a["headline"] for a in body["news"]]
     assert len(headlines) == len(set(headlines))
+
+
+def test_fred_api_key_never_appears_in_the_response_body(api_client, monkeypatch):
+    secret = "sk-fred-secret-should-never-leak-anywhere"
+    monkeypatch.setattr(config, "MARKET_INTEL_FRED_API_KEY", secret)
+    resp = api_client.get("/api/market-intelligence")
+    assert secret not in resp.text
