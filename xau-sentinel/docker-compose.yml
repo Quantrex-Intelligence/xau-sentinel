@@ -32,9 +32,11 @@ services:
       # exported from /run/secrets by the image's entrypoint.
       TELEGRAM_BOT_TOKEN: ""
       TELEGRAM_CHAT_ID: ""
+      API_AUTH_TOKEN: ""  # DEP-001, same reasoning as the Telegram secrets
     secrets:
       - telegram_bot_token
       - telegram_chat_id
+      - api_auth_token
     volumes:
       - xau-data:/app/data
     ports:
@@ -48,6 +50,11 @@ services:
       context: ./frontend
       args:
         API_PROXY_TARGET: http://api:8000
+        # DEP-001: must match the api service's API_AUTH_TOKEN. Unlike the
+        # backend's copy this is NOT a Docker secret — NEXT_PUBLIC_* vars
+        # are inlined into the browser-served JS bundle by design, so
+        # docker-inspect confidentiality doesn't apply to it either way.
+        NEXT_PUBLIC_API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
     depends_on:
       api:
         condition: service_healthy
@@ -62,6 +69,8 @@ secrets:
     environment: TELEGRAM_BOT_TOKEN
   telegram_chat_id:
     environment: TELEGRAM_CHAT_ID
+  api_auth_token:
+    environment: API_AUTH_TOKEN
 
 volumes:
   xau-data:

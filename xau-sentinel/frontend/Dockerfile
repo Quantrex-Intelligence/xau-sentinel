@@ -10,7 +10,9 @@ RUN npm ci --legacy-peer-deps
 FROM node:22-slim AS build
 WORKDIR /app
 ARG API_PROXY_TARGET=http://api:8000
+ARG NEXT_PUBLIC_API_AUTH_TOKEN=""
 ENV API_PROXY_TARGET=$API_PROXY_TARGET \
+    NEXT_PUBLIC_API_AUTH_TOKEN=$NEXT_PUBLIC_API_AUTH_TOKEN \
     NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

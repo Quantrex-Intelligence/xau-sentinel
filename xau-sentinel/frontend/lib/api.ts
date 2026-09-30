@@ -45,6 +45,12 @@ import type {
 // an API on another origin directly.
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
+// DEP-001: a single shared-secret token, checked by api/main.py's
+// AuthMiddleware only when the backend actually has one configured. Blank
+// here (the default) sends no Authorization header at all, matching the
+// backend's own no-auth-when-blank default.
+const AUTH_TOKEN = process.env.NEXT_PUBLIC_API_AUTH_TOKEN ?? "";
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -56,7 +62,11 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
+      ...init?.headers,
+    },
     cache: "no-store",
   });
   if (!res.ok) {

@@ -31,6 +31,11 @@ SESSION_TIMEZONE = os.getenv("SESSION_TIMEZONE", "UTC").strip()
 # map (write routes included). On by default because local dev and the E2E
 # readiness checks poll /docs; production should set API_DOCS_ENABLED=false.
 API_DOCS_ENABLED = _env_bool("API_DOCS_ENABLED", True)
+# DEP-001: a single shared-secret token for every route + the WebSocket.
+# Blank (the default) means no auth at all — the local dev / test / E2E
+# default, same graceful-degradation shape as AI_API_KEY below. Set it only
+# once actually exposing this beyond 127.0.0.1.
+API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN", "").strip()
 
 # --- Database ---
 DB_PATH = os.getenv("DB_PATH", "").strip() or str(BASE_DIR / "data" / "xau_sentinel.db")

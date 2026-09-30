@@ -5,12 +5,24 @@ import type { MarketSnapshot } from "./types";
 
 const RECONNECT_DELAY_MS = 3000;
 
+// DEP-001: same shared-secret token as lib/api.ts. A browser WebSocket
+// constructor can't set a custom header, so the token travels as a query
+// param instead — checked by api/main.py's AuthMiddleware before accept().
+const AUTH_TOKEN = process.env.NEXT_PUBLIC_API_AUTH_TOKEN ?? "";
+
 // Same-origin by default (proxied to the API by next.config.ts's /ws rewrite);
 // NEXT_PUBLIC_WS_URL overrides it for a directly reachable API.
 function resolveWsUrl(): string {
-  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
-  const { protocol, host } = window.location;
-  return `${protocol === "https:" ? "wss" : "ws"}://${host}/ws/market`;
+  const base = process.env.NEXT_PUBLIC_WS_URL
+    ? process.env.NEXT_PUBLIC_WS_URL
+    : (() => {
+        const { protocol, host } = window.location;
+        return `${protocol === "https:" ? "wss" : "ws"}://${host}/ws/market`;
+      })();
+  if (!AUTH_TOKEN) return base;
+  const url = new URL(base);
+  url.searchParams.set("token", AUTH_TOKEN);
+  return url.toString();
 }
 
 export type SocketStatus = "connecting" | "open" | "closed";

@@ -2,9 +2,11 @@
 frozen Stage 1 engine. No trading logic lives here; see api/snapshot.py for
 the one place multiple engine calls are assembled together."""
 import asyncio
+import hmac
 import logging
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -78,6 +80,69 @@ class CatchAllErrorMiddleware:
             await response(scope, receive, send)
 
 
+class AuthMiddleware:
+    """DEP-001: a single shared-secret token, checked on every HTTP request
+    and the WebSocket when config.API_AUTH_TOKEN is set — a complete no-op
+    when it's blank (the default: local dev, every existing test, and all
+    14 E2E checklists keep working with zero header changes, the same
+    graceful-degradation shape as AI_API_KEY/MARKET_INTEL_FRED_API_KEY).
+
+    Exempt: GET /api/health and the docs routes already gated by
+    API_DOCS_ENABLED, matching common REST convention — Docker's own
+    healthcheck doesn't even use HTTP any more (DEP-009's TCP probe), so
+    this is for operator convenience, not a hard requirement.
+
+    A browser can't set a custom header on `new WebSocket(url)`, so the
+    WebSocket takes the token as `?token=` instead of `Authorization`
+    (frontend/lib/websocket.ts) — an accepted trade-off at this "local,
+    single shared secret" scope, not full production hardening (see
+    DEPLOYMENT_ISSUES.md's DEP-001 "before going online" note).
+
+    Added between CatchAllErrorMiddleware and CORSMiddleware (DEP-015's
+    same ordering reasoning): inside CORS, so a 401 still carries
+    Access-Control-Allow-Origin instead of looking like a CORS failure to
+    the browser.
+
+    Token comparison uses hmac.compare_digest, not ==, so a wrong guess
+    can't be distinguished by response timing (a plain string compare
+    returns as soon as the first differing byte is found)."""
+
+    _EXEMPT_PATHS = {"/api/health", "/docs", "/redoc", "/openapi.json"}
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            not config.API_AUTH_TOKEN
+            or scope["type"] not in ("http", "websocket")
+            or scope["path"] in self._EXEMPT_PATHS
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers") or [])
+            auth = headers.get(b"authorization", b"").decode("latin-1")
+            token = auth[len("Bearer "):] if auth.startswith("Bearer ") else ""
+            if hmac.compare_digest(token, config.API_AUTH_TOKEN):
+                await self.app(scope, receive, send)
+                return
+            response = JSONResponse({"detail": "Unauthorized"}, status_code=401)
+            await response(scope, receive, send)
+            return
+
+        # WebSocket: reject before accept() so an unauthorized client never
+        # reaches api/ws.py's connection loop at all.
+        query = parse_qs(scope.get("query_string", b"").decode("latin-1"))
+        token = (query.get("token") or [""])[0]
+        if hmac.compare_digest(token, config.API_AUTH_TOKEN):
+            await self.app(scope, receive, send)
+            return
+        await receive()  # consume the "websocket.connect" handshake event
+        await send({"type": "websocket.close", "code": 4401})
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     init_db()
@@ -116,6 +181,9 @@ def create_app() -> FastAPI:
 
     # Must be added before CORSMiddleware so it sits INSIDE it (DEP-015).
     app.add_middleware(CatchAllErrorMiddleware)
+    # DEP-001: also added before CORSMiddleware, same reasoning — a 401
+    # needs CORS headers too. No-op when API_AUTH_TOKEN is blank.
+    app.add_middleware(AuthMiddleware)
 
     origins = os.getenv("XAU_API_CORS_ORIGINS")
     allow_origins = origins.split(",") if origins else DEFAULT_ORIGINS
