@@ -1,11 +1,14 @@
-streamlit>=1.32
-pandas>=2.0
-numpy>=1.24
-plotly>=5.18
-python-dotenv>=1.0
-pytz>=2024.1
+# DEP-014: exact pins matching the tested host .venv (Python 3.10). Every pin
+# also supports Python 3.12 (the Docker image). Unpinned >= bounds let a fresh
+# image build pull pandas 3, which broke /api/similarity/current.
+streamlit==1.64.0
+pandas==2.3.3
+numpy==2.2.6
+plotly==7.1.0
+python-dotenv==1.2.3
+pytz==2026.4
 
 # Windows-only: talks to a locally running MetaTrader 5 terminal.
 # Install this on the machine that actually runs MT5 (MODE=live).
 # It cannot be installed on Linux/macOS, so leave it out there and run MODE=mock instead.
-MetaTrader5>=5.0.45; sys_platform == "win32"
+MetaTrader5==5.0.6180; sys_platform == "win32"

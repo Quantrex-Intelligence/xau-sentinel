@@ -14,16 +14,43 @@ extract_features_from_live_setup() builds the same shape from the CURRENT
 candidate setup — api.snapshot.build_snapshot() + analysis.setup.detect_setup()'s
 already-computed result, never re-run here.
 """
-from typing import Optional
+import math
+from typing import Any, Optional
+
+import pandas as pd
 
 from ai.similarity.models import SetupFeatures
+
+
+# DEP-014: a row read through pd.read_sql_query can carry float NaN instead
+# of None for a NULL column (always for float columns, and for string
+# columns too under pandas 3's default string dtype). NaN is truthy, so a
+# bare `if not value` guard lets it through. Every trade-row value is
+# normalized through these helpers instead.
+def _is_missing(value: Any) -> bool:
+    if value is None:
+        return True
+    # pd.isna covers float NaN, numpy NaN, pd.NA and NaT; guard with
+    # is_scalar so a list/array value is never mistaken for "missing".
+    return bool(pd.api.types.is_scalar(value) and pd.isna(value))
+
+
+def _optional_float(value: Any) -> Optional[float]:
+    if _is_missing(value):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
 
 # Every sweepable level name in analysis/liquidity.py contains "High" or
 # "Low" (see SWEEPABLE_HIGH_LEVELS/SWEEPABLE_LOW_LEVELS), and the stored
 # label is always "{level_name} swept" — so the kind is losslessly
 # re-derivable from the label alone, not new information.
 def _infer_liquidity_kind(label: Optional[str]) -> Optional[str]:
-    if not label:
+    if not isinstance(label, str) or not label:  # None, NaN, pd.NA, ""
         return None
     lowered = label.lower()
     if "low" in lowered:
@@ -44,12 +71,12 @@ def extract_features_from_trade(trade_row: dict) -> SetupFeatures:
         h1_structure=_norm(trade_row.get("h1_bias")),
         m15_structure=_norm(trade_row.get("m15_bias")),
         m5_structure=_norm(trade_row.get("m5_bias")),
-        regime=_norm(trade_row.get("regime") or trade_row.get("market_regime")),
+        regime=_norm(trade_row.get("regime")) or _norm(trade_row.get("market_regime")),
         liquidity_kind=_infer_liquidity_kind(trade_row.get("liquidity")),
         mss_direction=_norm(trade_row.get("mss")),
         displacement=_norm(trade_row.get("displacement")),
         session=_norm(trade_row.get("session")),
-        planned_rr=trade_row.get("planned_rr"),
+        planned_rr=_optional_float(trade_row.get("planned_rr")),
     )
 
 

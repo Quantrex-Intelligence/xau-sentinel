@@ -2,11 +2,14 @@
 frozen Stage 1 engine. No trading logic lives here; see api/snapshot.py for
 the one place multiple engine calls are assembled together."""
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 import config
 import log_safety
@@ -32,7 +35,47 @@ from api import ws
 
 log_safety.install()  # VAL-036: keep the Telegram bot token out of httpx's request logs
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+class CatchAllErrorMiddleware:
+    """DEP-015: turns any unhandled exception into a logged JSON 500.
+
+    An `app.exception_handler(Exception)` would NOT fix this: Starlette wires
+    Exception/500 handlers into ServerErrorMiddleware, the outermost layer,
+    i.e. outside CORSMiddleware, so the 500 still left without
+    Access-Control-Allow-Origin and the browser reported a CORS failure.
+    This middleware is registered BEFORE CORSMiddleware (add_middleware
+    prepends, so it ends up inside the CORS layer) and the CORS headers are
+    added to its response. HTTPException never reaches it: FastAPI's
+    ExceptionMiddleware, further inside, already answers those."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def send_wrapper(message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception:
+            logger.exception("Unhandled error on %s %s", scope.get("method"), scope.get("path"))
+            if response_started:
+                raise  # too late to send a clean 500; let the server close the connection
+            response = JSONResponse({"detail": "Internal server error"}, status_code=500)
+            await response(scope, receive, send)
 
 
 @asynccontextmanager
@@ -68,7 +111,11 @@ async def _lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="XAU Sentinel API", version="1.0.0", lifespan=_lifespan)
+    docs_kwargs = {} if config.API_DOCS_ENABLED else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    app = FastAPI(title="XAU Sentinel API", version="1.0.0", lifespan=_lifespan, **docs_kwargs)
+
+    # Must be added before CORSMiddleware so it sits INSIDE it (DEP-015).
+    app.add_middleware(CatchAllErrorMiddleware)
 
     origins = os.getenv("XAU_API_CORS_ORIGINS")
     allow_origins = origins.split(",") if origins else DEFAULT_ORIGINS

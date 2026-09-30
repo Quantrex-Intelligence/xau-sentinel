@@ -26,6 +26,12 @@ TRADING_SYMBOL = os.getenv("TRADING_SYMBOL", "XAUUSD").strip()
 # --- Session / display ---
 SESSION_TIMEZONE = os.getenv("SESSION_TIMEZONE", "UTC").strip()
 
+# --- API ---
+# DEP-006: FastAPI's /docs, /redoc and /openapi.json publish the full endpoint
+# map (write routes included). On by default because local dev and the E2E
+# readiness checks poll /docs; production should set API_DOCS_ENABLED=false.
+API_DOCS_ENABLED = _env_bool("API_DOCS_ENABLED", True)
+
 # --- Database ---
 DB_PATH = os.getenv("DB_PATH", "").strip() or str(BASE_DIR / "data" / "xau_sentinel.db")
 

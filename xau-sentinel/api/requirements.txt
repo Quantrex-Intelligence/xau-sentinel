@@ -1,12 +1,16 @@
 # Kept separate from the frozen Stage 1 requirements.txt on purpose — this
 # API layer is a new, additive presentation-layer dependency, not part of
 # the validated trading engine.
-fastapi>=0.109
-uvicorn[standard]>=0.32
-websockets>=12.0
-httpx>=0.27
+#
+# DEP-014: exact pins matching the tested host .venv (Python 3.10). Every pin
+# also supports Python 3.12 (the Docker image). Unpinned >= bounds let a fresh
+# image build pull pandas 3, which broke /api/similarity/current.
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+websockets==16.1.1
+httpx==0.28.1
 
 # Stage 3 AI Assistant's default provider. Import is guarded in
 # ai/providers/anthropic_provider.py — the app still runs (with AI_PROVIDER
 # unset or set to "mock") if this isn't installed.
-anthropic>=0.40
+anthropic==1.8.0

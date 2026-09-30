@@ -21,7 +21,10 @@ _REQUIRED_FIELDS = ("direction", "h1_structure")
 
 
 def _clean_records(df: pd.DataFrame) -> List[dict]:
-    return df.where(pd.notnull(df), None).to_dict(orient="records")
+    # DEP-014 / VAL-005: df.where(notnull, None) is a no-op on float columns
+    # (and on pandas 3 string columns) — NaN survives and defeats every
+    # downstream `is None` check. Cast to object first so None actually sticks.
+    return df.astype(object).where(pd.notnull(df), None).to_dict(orient="records")
 
 
 def _outcome_from_row(row: dict) -> Outcome:
