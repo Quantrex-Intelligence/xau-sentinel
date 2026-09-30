@@ -1,6 +1,7 @@
-# Production build of the Next.js frontend. NEXT_PUBLIC_* values are inlined
-# into the client bundle at build time, so they must be the URLs the
-# *browser* uses to reach the API, not a container-internal hostname.
+# Production build of the Next.js frontend. The browser only talks to this
+# server's own origin: next.config.ts rewrites /api/* and /ws/* to
+# API_PROXY_TARGET, so one image works on any hostname. Rewrites are compiled
+# at build time, so the target (a container-network address) is a build arg.
 FROM node:22-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -8,10 +9,8 @@ RUN npm ci --legacy-peer-deps
 
 FROM node:22-slim AS build
 WORKDIR /app
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-ARG NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws/market
-ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL \
-    NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL \
+ARG API_PROXY_TARGET=http://api:8000
+ENV API_PROXY_TARGET=$API_PROXY_TARGET \
     NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -19,10 +18,13 @@ RUN npm run build
 
 FROM node:22-slim AS run
 WORKDIR /app
+ARG API_PROXY_TARGET=http://api:8000
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
+    API_PROXY_TARGET=$API_PROXY_TARGET \
     PORT=3000
 COPY --from=build --chown=node:node /app/package.json ./package.json
+COPY --from=build --chown=node:node /app/next.config.ts ./next.config.ts
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/.next ./.next
 COPY --from=build --chown=node:node /app/public ./public

@@ -22,7 +22,20 @@ USER app
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+# A TCP probe, not an HTTP request: uvicorn only accepts connections once the
+# lifespan startup (table init, knowledge seeding) has finished, and a socket
+# connect writes no access-log line every interval. start-period covers a cold
+# Docker Desktop boot.
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
+    CMD python -c "import socket; socket.create_connection(('127.0.0.1', 8000), 4).close()"
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# config.py reads secrets from environment variables only. Each file-mounted
+# Docker secret (/run/secrets/<name>) is exported as <NAME> just before uvicorn
+# starts, so its value lives only inside the process, never in the container's
+# configured environment (docker inspect).
+ENTRYPOINT ["sh", "-c", "for f in /run/secrets/*; do [ -f \"$f\" ] || continue; n=$(basename \"$f\" | tr '[:lower:]' '[:upper:]'); v=$(cat \"$f\"); if [ -n \"$v\" ]; then export \"$n=$v\"; fi; done; exec \"$@\"", "--"]
+# --timeout-keep-alive well above the Next.js proxy's pooled-connection idle
+# time, so the proxy always closes an idle connection first. With uvicorn's
+# 5 s default, a reused connection could be reset mid-request (seen once as a
+# proxied ECONNRESET -> 500).
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "75"]

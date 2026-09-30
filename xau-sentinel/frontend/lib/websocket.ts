@@ -3,8 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { MarketSnapshot } from "./types";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/market";
 const RECONNECT_DELAY_MS = 3000;
+
+// Same-origin by default (proxied to the API by next.config.ts's /ws rewrite);
+// NEXT_PUBLIC_WS_URL overrides it for a directly reachable API.
+function resolveWsUrl(): string {
+  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+  const { protocol, host } = window.location;
+  return `${protocol === "https:" ? "wss" : "ws"}://${host}/ws/market`;
+}
 
 export type SocketStatus = "connecting" | "open" | "closed";
 
@@ -27,7 +34,7 @@ export function useMarketSocket() {
     function connect() {
       if (stoppedRef.current) return;
       setStatus("connecting");
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(resolveWsUrl());
       wsRef.current = ws;
 
       ws.onopen = () => setStatus("open");

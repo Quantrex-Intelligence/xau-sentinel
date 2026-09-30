@@ -40,7 +40,10 @@ import type {
   TradeReviewSummary,
 } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+// Same-origin by default: next.config.ts rewrites /api/* to the API server,
+// so one build works on any host. Set NEXT_PUBLIC_API_BASE_URL only to call
+// an API on another origin directly.
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export class ApiError extends Error {
   status: number;
