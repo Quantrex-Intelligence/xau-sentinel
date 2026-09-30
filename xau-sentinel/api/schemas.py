@@ -221,6 +221,20 @@ class FundedNextStatusOut(BaseModel):
     reason: str
 
 
+class FundedNextMcpConfigOut(BaseModel):
+    configured: bool
+
+
+class FundedNextMcpResultOut(BaseModel):
+    """Envelope for a FundedNext MCP tool call. `raw` is the verbatim MCP
+    JSON payload — deliberately not re-modeled field-by-field, since only
+    get_accounts' shape was live-verified; the rest are documented but not
+    all live-called (see risk/fundednext_mcp.py)."""
+    data_available: bool
+    reason: Optional[str] = None
+    raw: Optional[Any] = None
+
+
 class FundedNextRuleSetOut(BaseModel):
     account_type: str
     label: str

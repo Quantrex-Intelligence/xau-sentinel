@@ -18,3 +18,9 @@ anthropic==1.8.0
 # Alternate AI_PROVIDER=groq. Same import-guard treatment, in
 # ai/providers/groq_provider.py.
 groq==1.7.0
+
+# FundedNext MCP integration (risk/fundednext_mcp.py) — official MCP Python
+# SDK, used to reach https://mcp.fundednext.com. Import is guarded there;
+# the app still runs (FUNDEDNEXT_MCP_TOKEN unset or this package missing)
+# without it.
+mcp==2.2.0

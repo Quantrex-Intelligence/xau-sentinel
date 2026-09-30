@@ -40,12 +40,14 @@ services:
       API_AUTH_TOKEN: ""  # DEP-001, same reasoning as the Telegram secrets
       AI_API_KEY: ""  # same reasoning -- a real provider key must not sit in env_file/.env exposure either
       MARKET_INTEL_FRED_API_KEY: ""  # same reasoning -- a real FRED key must not sit in env_file/.env exposure either
+      FUNDEDNEXT_MCP_TOKEN: ""  # same reasoning -- a real FundedNext MCP token must not sit in env_file/.env exposure either
     secrets:
       - telegram_bot_token
       - telegram_chat_id
       - api_auth_token
       - ai_api_key
       - market_intel_fred_api_key
+      - fundednext_mcp_token
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,6 +105,8 @@ secrets:
     environment: AI_API_KEY
   market_intel_fred_api_key:
     environment: MARKET_INTEL_FRED_API_KEY
+  fundednext_mcp_token:
+    environment: FUNDEDNEXT_MCP_TOKEN
 
 volumes:
   xau-data:

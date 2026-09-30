@@ -256,3 +256,17 @@ DIGEST_WEEKLY_TIME = os.getenv("DIGEST_WEEKLY_TIME", "09:00").strip()
 DIGEST_MONTHLY_DAY = int(os.getenv("DIGEST_MONTHLY_DAY", 1))
 DIGEST_MONTHLY_TIME = os.getenv("DIGEST_MONTHLY_TIME", "09:00").strip()
 DIGEST_POLL_INTERVAL_SECONDS = int(os.getenv("DIGEST_POLL_INTERVAL_SECONDS", 300))
+
+# --- FundedNext MCP Integration — a second, independent, read-only account-
+# data source (account/balance/status, trading history, risk/rule/compliance
+# data, payout info) fetched from FundedNext's own official MCP server. MT5
+# remains the only source for prices/candles/spread/open positions, and
+# risk/fundednext.py's MT5-derived compute_status() is untouched by this.
+# Blank token = feature off (the app still boots and runs normally). Under
+# docker-compose, a real token is passed as a file-mounted secret (same
+# pattern as AI_API_KEY/MARKET_INTEL_FRED_API_KEY) so it never appears in
+# `docker inspect`. See risk/fundednext_mcp.py.
+FUNDEDNEXT_MCP_URL = os.getenv("FUNDEDNEXT_MCP_URL", "https://mcp.fundednext.com").strip()
+FUNDEDNEXT_MCP_TOKEN = os.getenv("FUNDEDNEXT_MCP_TOKEN", "").strip()
+FUNDEDNEXT_MCP_TIMEOUT_SECONDS = float(os.getenv("FUNDEDNEXT_MCP_TIMEOUT_SECONDS", 15.0))
+FUNDEDNEXT_MCP_CACHE_TTL_SECONDS = int(os.getenv("FUNDEDNEXT_MCP_CACHE_TTL_SECONDS", 60))

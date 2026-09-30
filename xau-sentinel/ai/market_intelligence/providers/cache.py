@@ -9,7 +9,7 @@ Process-lifetime only: restarting the API server clears it, which is fine —
 the next request just re-fetches and re-populates.
 """
 import time
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Awaitable, Callable, Dict, Tuple
 
 _CACHE: Dict[str, Tuple[float, Any]] = {}
 
@@ -26,6 +26,21 @@ def get_or_fetch(key: str, ttl_seconds: float, fetch_fn: Callable[[], Any]) -> A
         return cached[1]
 
     value = fetch_fn()
+    _CACHE[key] = (now + ttl_seconds, value)
+    return value
+
+
+async def get_or_fetch_async(key: str, ttl_seconds: float, fetch_fn: Callable[[], Awaitable[Any]]) -> Any:
+    """Async counterpart of get_or_fetch, for an async source (FundedNext
+    MCP — see risk/fundednext_mcp.py). Shares the same _CACHE store; callers
+    namespace their own keys (e.g. "fundednext_mcp:...") to avoid colliding
+    with the sync providers' keys."""
+    now = time.monotonic()
+    cached = _CACHE.get(key)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+
+    value = await fetch_fn()
     _CACHE[key] = (now + ttl_seconds, value)
     return value
 
