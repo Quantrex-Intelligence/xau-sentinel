@@ -38,7 +38,11 @@ API_DOCS_ENABLED = _env_bool("API_DOCS_ENABLED", True)
 API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN", "").strip()
 
 # --- Database ---
-DB_PATH = os.getenv("DB_PATH", "").strip() or str(BASE_DIR / "data" / "xau_sentinel.db")
+# DEP-002: PostgreSQL only, hard cutover from SQLite. No default — an
+# unset DATABASE_URL fails loudly at engine-creation time rather than
+# silently falling back to some assumed connection ("UNKNOWN, never
+# fabricated" applies to config as much as to trading data).
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 # --- Analysis thresholds (configurable, kept deliberately simple) ---
 SWING_LOOKBACK = int(os.getenv("SWING_LOOKBACK", 3))

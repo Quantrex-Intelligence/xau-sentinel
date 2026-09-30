@@ -8,6 +8,11 @@ plotly==7.1.0
 python-dotenv==1.2.3
 pytz==2026.4
 
+# DEP-002: PostgreSQL persistence layer (replaces raw sqlite3).
+SQLAlchemy==2.0.36
+psycopg[binary]==3.2.3
+alembic==1.14.0
+
 # Windows-only: talks to a locally running MetaTrader 5 terminal.
 # Install this on the machine that actually runs MT5 (MODE=live).
 # It cannot be installed on Linux/macOS, so leave it out there and run MODE=mock instead.
