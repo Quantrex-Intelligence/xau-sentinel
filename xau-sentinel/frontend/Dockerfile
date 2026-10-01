@@ -16,6 +16,14 @@ ENV API_PROXY_TARGET=$API_PROXY_TARGET \
     NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# lightningcss (a transitive dep of @tailwindcss/postcss) ships its native
+# binary as a platform-specific optionalDependency; it sometimes doesn't
+# land in node_modules when that directory is copied in from a separate
+# `npm ci` stage ("Cannot find module '.../lightningcss.linux-x64-gnu.node'").
+# `npm rebuild` only relinks packages already present, so it can't fix a
+# genuinely missing optional package -- re-running install (same lockfile,
+# so no version drift) does.
+RUN npm install --legacy-peer-deps
 RUN npm run build
 
 FROM node:22-slim AS run
