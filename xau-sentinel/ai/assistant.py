@@ -90,7 +90,7 @@ def chat(message: str, conversation_id: Optional[str] = None,
 
     response, tools_used = _run_tool_loop(provider, system_prompt, messages)
 
-    answer_text = response.text
+    answer_text = prompts.strip_markdown_for_display(response.text)
     overall_category = AnswerCategory.INTERPRETATION
     if prompts.contains_actionable_directive(answer_text):
         answer_text = prompts.SAFETY_OVERRIDE_MESSAGE

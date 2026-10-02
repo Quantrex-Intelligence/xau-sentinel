@@ -42,7 +42,12 @@ from risk import settings_store
 
 from ai.providers import get_provider
 from ai.providers.base import ProviderConfigError, ProviderRequestError, ProviderResponseError
-from ai.prompts import SAFETY_OVERRIDE_MESSAGE, contains_actionable_directive, contains_predictive_probability_claim
+from ai.prompts import (
+    SAFETY_OVERRIDE_MESSAGE,
+    contains_actionable_directive,
+    contains_predictive_probability_claim,
+    strip_markdown_for_display,
+)
 from ai.strategy import evidence as evidence_builder
 from ai.strategy import rules
 from ai.strategy.evidence import ContextualEvidence
@@ -308,7 +313,7 @@ def attach_llm_explanation(
             result.contextual_analysis = _build_contextual_analysis(result, evidence, interpretation=None)
         return result
 
-    explanation = response.text
+    explanation = strip_markdown_for_display(response.text)
     if contains_actionable_directive(explanation) or contains_predictive_probability_claim(explanation):
         explanation = SAFETY_OVERRIDE_MESSAGE
 

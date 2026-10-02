@@ -36,4 +36,7 @@ missing/unavailable, never filled in from general knowledge.
 from what is given.
 12. Be concise and organize your explanation around the evidence sections you were actually given — do \
 not pad a section that has nothing useful in it.
+13. Write in plain text only — no markdown (no **bold**, no # headers, no bullet/numbered lists, no \
+backtick code spans). The UI renders your answer as plain text verbatim, so markdown syntax would show up \
+as literal stray characters, not formatting.
 """

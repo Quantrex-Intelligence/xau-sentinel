@@ -23,7 +23,12 @@ from ai.explanations.models import AlertExplanation
 from ai.explanations.prompts import EXPLANATION_SYSTEM_PROMPT
 from ai.monitoring import store as monitoring_store
 from ai.monitoring.models import AlertEvent
-from ai.prompts import SAFETY_OVERRIDE_MESSAGE, contains_actionable_directive, contains_predictive_probability_claim
+from ai.prompts import (
+    SAFETY_OVERRIDE_MESSAGE,
+    contains_actionable_directive,
+    contains_predictive_probability_claim,
+    strip_markdown_for_display,
+)
 from ai.providers import get_provider
 from ai.providers.base import ProviderConfigError, ProviderRequestError, ProviderResponseError
 from ai.strategy.evidence import historical_context as historical_context_text
@@ -71,7 +76,7 @@ def _call_llm(prompt: str) -> tuple:
     except (ProviderRequestError, ProviderResponseError) as exc:
         return None, None, None, f"AI explanation unavailable — {exc}"
 
-    text = response.text
+    text = strip_markdown_for_display(response.text)
     if contains_actionable_directive(text) or contains_predictive_probability_claim(text):
         text = SAFETY_OVERRIDE_MESSAGE
     return text, response.provider, response.model, None
