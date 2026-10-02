@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { Panel } from "@/components/layout/panel";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import type { DimensionBreakdown } from "@/lib/types";
 
 const DIMENSIONS: { value: string; label: string }[] = [
@@ -47,22 +48,19 @@ export function DimensionBreakdownPanel() {
 
   return (
     <Panel title="Dimension Breakdown">
-      <div className="flex flex-wrap gap-1.5 mb-3">
-        {DIMENSIONS.map((d) => (
-          <button
-            key={d.value}
-            onClick={() => setDimension(d.value)}
-            className={cn(
-              "text-[11px] px-2 py-1 rounded border",
-              dimension === d.value
-                ? "border-info bg-info/15 text-info"
-                : "border-border text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {d.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={dimension}
+        onValueChange={(value) => setDimension(value as string)}
+        className="mb-3"
+      >
+        <TabsList>
+          {DIMENSIONS.map((d) => (
+            <TabsTrigger key={d.value} value={d.value}>
+              {d.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {error && <p className="text-xs text-bearish">Unavailable — {error}</p>}
       {!breakdown && !error && <p className="text-xs text-muted-foreground">Loading…</p>}
@@ -90,9 +88,9 @@ export function DimensionBreakdownPanel() {
                   <td className="py-1 text-foreground">
                     {row.value}
                     {row.insufficient_sample && (
-                      <span className="ml-1.5 text-[9px] uppercase text-muted-foreground bg-muted px-1 py-0.5 rounded">
+                      <Badge variant="secondary" className="ml-1.5 text-[9px]">
                         Insufficient Sample
-                      </span>
+                      </Badge>
                     )}
                   </td>
                   <td className="py-1 text-right font-mono">{row.sample_size}</td>

@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { Panel, PanelRow } from "@/components/layout/panel";
+import { Badge } from "@/components/ui/badge";
 import { SafetyBanner } from "@/components/fundednext/safety-banner";
 import { LimitBar } from "@/components/fundednext/limit-bar";
 import { AccountSelector } from "@/components/fundednext/account-selector";
 import { api } from "@/lib/api";
 import { usePolling } from "@/lib/use-polling";
 import { formatPrice } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 export default function FundedNextPage() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -23,17 +23,11 @@ export default function FundedNextPage() {
 
   return (
     <div className="p-4 flex flex-col gap-4">
+      <h1 className="text-lg font-semibold text-foreground tracking-tight">FundedNext</h1>
       <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "text-xs font-medium px-2 py-0.5 rounded",
-            status.mode === "mock" ? "text-warning bg-warning/10" : "text-bullish bg-bullish/10"
-          )}
-        >
-          {status.mode.toUpperCase()}
-        </span>
+        <Badge variant={status.mode === "mock" ? "warning" : "bullish"}>{status.mode.toUpperCase()}</Badge>
         <span className="text-sm text-muted-foreground">
-          FundedNext — read-only monitoring. This app never places, closes, or modifies orders.
+          Read-only monitoring. This app never places, closes, or modifies orders.
         </span>
       </div>
 
@@ -112,14 +106,12 @@ export default function FundedNextPage() {
               <div className="space-y-2">
                 {status.violations.map((v, i) => (
                   <div key={i} className="text-sm">
-                    <span
-                      className={cn(
-                        "text-xs font-semibold uppercase mr-2",
-                        v.level === "BREACHED" ? "text-bearish" : v.level === "CRITICAL" ? "text-bearish" : "text-warning"
-                      )}
+                    <Badge
+                      variant={v.level === "BREACHED" || v.level === "CRITICAL" ? "bearish" : "warning"}
+                      className="mr-2"
                     >
                       {v.level}
-                    </span>
+                    </Badge>
                     <span className="text-foreground">{v.rule}</span>
                     <p className="text-xs text-muted-foreground mt-0.5">{v.message}</p>
                   </div>

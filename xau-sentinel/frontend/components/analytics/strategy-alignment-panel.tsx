@@ -1,32 +1,31 @@
 "use client";
 
 import { Panel, PanelRow } from "@/components/layout/panel";
+import { Badge, type badgeVariants } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { usePolling } from "@/lib/use-polling";
-import { cn } from "@/lib/utils";
 import type { StrategyAlignment } from "@/lib/types";
+import type { VariantProps } from "class-variance-authority";
 
-const ALIGNMENT_STYLE: Record<string, string> = {
-  ALIGNED: "text-bullish bg-bullish/10",
-  PARTIALLY_ALIGNED: "text-warning bg-warning/10",
-  NOT_ALIGNED: "text-bearish bg-bearish/10",
-  UNKNOWN: "text-muted-foreground bg-muted",
+const ALIGNMENT_VARIANT: Record<string, VariantProps<typeof badgeVariants>["variant"]> = {
+  ALIGNED: "bullish",
+  PARTIALLY_ALIGNED: "warning",
+  NOT_ALIGNED: "bearish",
+  UNKNOWN: "secondary",
 };
 
 const ALIGNMENT_ORDER: StrategyAlignment[] = ["ALIGNED", "PARTIALLY_ALIGNED", "NOT_ALIGNED", "UNKNOWN"];
+const SUB_LABEL = "text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1";
 
 function AlignmentCounts({ title, counts }: { title: string; counts: Record<string, number> }) {
   return (
     <div className="mb-3">
-      <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">{title}</p>
+      <p className={SUB_LABEL}>{title}</p>
       <div className="flex flex-wrap gap-1.5">
         {ALIGNMENT_ORDER.map((a) => (
-          <span
-            key={a}
-            className={cn("text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded", ALIGNMENT_STYLE[a])}
-          >
+          <Badge key={a} variant={ALIGNMENT_VARIANT[a]}>
             {a.replace(/_/g, " ")}: {counts[a] ?? 0}
-          </span>
+          </Badge>
         ))}
       </div>
     </div>
@@ -59,9 +58,7 @@ export function StrategyAlignmentPanel() {
           <AlignmentCounts title="Risk Alignment" counts={data.overview.risk_alignment_counts} />
 
           <div className="mt-3">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">
-              Adherence vs. Outcome
-            </p>
+            <p className={SUB_LABEL}>Adherence vs. Outcome</p>
             {data.adherence.length === 0 ? (
               <p className="text-xs text-muted-foreground">No closed trades yet.</p>
             ) : (
@@ -79,9 +76,9 @@ export function StrategyAlignmentPanel() {
                   {data.adherence.map((bucket) => (
                     <tr key={bucket.alignment} className="border-t border-border">
                       <td className="py-1">
-                        <span className={cn("text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded", ALIGNMENT_STYLE[bucket.alignment])}>
+                        <Badge variant={ALIGNMENT_VARIANT[bucket.alignment]}>
                           {bucket.alignment.replace(/_/g, " ")}
-                        </span>
+                        </Badge>
                       </td>
                       <td className="py-1 text-right font-mono">{bucket.trade_count}</td>
                       <td className="py-1 text-right font-mono text-bullish">{bucket.wins}</td>

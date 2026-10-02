@@ -3,6 +3,7 @@
 import { useMarket } from "@/lib/market-context";
 import { formatAgo, formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Circle } from "lucide-react";
 import { NotificationBell } from "@/components/monitoring/notification-bell";
 
@@ -32,19 +33,13 @@ export function TopBar() {
         </span>
       )}
 
-      <span
-        className={cn(
-          "flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded",
-          !conn
-            ? "text-muted-foreground bg-muted"
-            : conn.mode === "mock"
-              ? "text-warning bg-warning/10"
-              : "text-bullish bg-bullish/10"
-        )}
+      <Badge
+        variant={!conn ? "secondary" : conn.mode === "mock" ? "warning" : "bullish"}
+        className="gap-1.5"
       >
         <Circle className="size-2 fill-current" />
         {modeLabel}
-      </span>
+      </Badge>
 
       <span
         className={cn(
@@ -56,11 +51,7 @@ export function TopBar() {
         {conn ? (conn.connected ? "MT5 CONNECTED" : "MT5 DISCONNECTED") : "CONNECTING…"}
       </span>
 
-      {price?.stale && (
-        <span className="text-xs font-medium text-warning bg-warning/10 px-2 py-0.5 rounded">
-          ⚠ DATA STALE
-        </span>
-      )}
+      {price?.stale && <Badge variant="warning">⚠ DATA STALE</Badge>}
 
       <span className="ml-auto flex items-center gap-4 text-xs text-muted-foreground">
         {price && <span>Updated {formatAgo(price.time)}</span>}

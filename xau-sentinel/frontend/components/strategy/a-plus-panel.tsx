@@ -2,17 +2,19 @@
 
 import type { ReactNode } from "react";
 import { Panel } from "@/components/layout/panel";
+import { Badge, type badgeVariants } from "@/components/ui/badge";
 import { usePolling } from "@/lib/use-polling";
 import { api } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ContextualAnalysis, StrategyCriterion, StrategyCriterionStatus, StrategyRating } from "@/lib/types";
+import type { VariantProps } from "class-variance-authority";
 import { Check, X, HelpCircle, Sparkles } from "lucide-react";
 
-const RATING_STYLES: Record<StrategyRating, { text: string; bg: string; dot: string }> = {
-  "A+": { text: "text-bullish", bg: "bg-bullish/10 border-bullish/30", dot: "bg-bullish" },
-  DEVELOPING: { text: "text-warning", bg: "bg-warning/10 border-warning/30", dot: "bg-warning" },
-  INVALID: { text: "text-bearish", bg: "bg-bearish/10 border-bearish/30", dot: "bg-bearish" },
+const RATING_VARIANT: Record<StrategyRating, VariantProps<typeof badgeVariants>["variant"]> = {
+  "A+": "bullish",
+  DEVELOPING: "warning",
+  INVALID: "bearish",
 };
 
 const STATUS_ICON: Record<StrategyCriterionStatus, ReactNode> = {
@@ -45,11 +47,13 @@ function CriterionRow({ criterion }: { criterion: StrategyCriterion }) {
       </span>
       <div className="min-w-0">
         <p className="text-sm text-foreground">{criterion.name}</p>
-        <p className="text-[11px] text-muted-foreground leading-snug">{criterion.evidence}</p>
+        <p className="text-xs text-muted-foreground leading-snug">{criterion.evidence}</p>
       </div>
     </div>
   );
 }
+
+const SUB_LABEL = "text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1";
 
 /** Stage 10: one deterministic section — plain text Sentinel already knows,
  * never LLM output. Distinct visual treatment from <InterpretationSection>
@@ -57,22 +61,22 @@ function CriterionRow({ criterion }: { criterion: StrategyCriterion }) {
  * distinction the spec asks for. */
 function AnalysisSection({ label, text }: { label: string; text: string }) {
   return (
-    <div className="mb-2">
-      <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">{label}</p>
-      <p className="text-xs text-foreground leading-snug">{text}</p>
+    <div>
+      <p className={SUB_LABEL}>{label}</p>
+      <p className="text-sm text-foreground leading-snug">{text}</p>
     </div>
   );
 }
 
 function InterpretationSection({ analysis }: { analysis: ContextualAnalysis }) {
   return (
-    <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 mb-3">
-      <p className="text-[11px] font-semibold text-primary uppercase mb-1 flex items-center gap-1">
+    <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+      <p className="text-[11px] font-semibold text-primary uppercase tracking-wide mb-1 flex items-center gap-1">
         <Sparkles className="size-3" /> AI Interpretation
       </p>
-      <p className="text-xs text-foreground whitespace-pre-wrap">{analysis.interpretation}</p>
+      <p className="text-sm text-foreground whitespace-pre-wrap">{analysis.interpretation}</p>
       {analysis.uncertainties.length > 0 && (
-        <p className="text-[11px] text-muted-foreground mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           Uncertainties: {analysis.uncertainties.join("; ")}
         </p>
       )}
@@ -88,7 +92,7 @@ function InterpretationSection({ analysis }: { analysis: ContextualAnalysis }) {
  * never padded with an empty macro/events/news block. */
 function ContextualAnalysisBlock({ analysis }: { analysis: ContextualAnalysis }) {
   return (
-    <div className="mb-3 pt-3 border-t border-border">
+    <div className="flex flex-col gap-3">
       <AnalysisSection label="Technical" text={analysis.technical_summary} />
       <AnalysisSection label="Strategy" text={analysis.strategy_summary} />
       {analysis.market_intelligence.relevant && (
@@ -132,79 +136,80 @@ export function AplusPanel() {
     );
   }
 
-  const style = RATING_STYLES[result.rating];
-
   return (
     <Panel title="A+ Strategy Evaluation">
-      <div className={cn("rounded-md border px-3 py-2 mb-3 flex items-center gap-2", style.bg)}>
-        <span className={cn("size-2 rounded-full shrink-0", style.dot)} />
-        <span className={cn("text-lg font-bold tracking-wide", style.text)}>
-          {result.direction ? `${result.direction} — ` : ""}
-          {result.rating}
-        </span>
-      </div>
-
-      {result.invalidation && (
-        <p className="text-xs text-bearish mb-3">{result.invalidation}</p>
-      )}
-
-      {result.criteria.length > 0 && (
-        <div className="mb-3">
-          {result.criteria.map((c) => (
-            <CriterionRow key={c.name} criterion={c} />
-          ))}
-        </div>
-      )}
-
-      {result.missing_conditions.length > 0 && (
-        <p className="text-[11px] text-muted-foreground mb-3">
-          Missing: {result.missing_conditions.join(", ")}
-        </p>
-      )}
-
-      {result.entry !== null && (
-        <div className="grid grid-cols-2 gap-2 pb-3 mb-3 border-b border-border text-sm">
-          <PlanField label="Entry" value={formatPrice(result.entry)} />
-          <PlanField label="Stop Loss" value={formatPrice(result.stop_loss)} />
-          <PlanField label="Target" value={formatPrice(result.target)} />
-          <PlanField label="R:R" value={result.rr !== null ? `1:${result.rr}` : "—"} />
-        </div>
-      )}
-
-      <div className="mb-3">
-        <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">FundedNext Risk</p>
-        {result.fundednext.data_available ? (
-          <p className="text-xs text-foreground">
-            {result.fundednext.safety_level} · daily loss used {result.fundednext.daily_loss_used_pct}% (limit for A+: {result.fundednext.max_daily_loss_used_pct_allowed}%)
-          </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">{result.fundednext.reason ?? "Unavailable"}</p>
-        )}
-      </div>
-
-      {result.context_evidence.length > 0 && (
-        <div className="mb-3">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">Context</p>
-          {result.context_evidence.map((e, i) => (
-            <p key={i} className="text-[11px] text-muted-foreground leading-snug">{e}</p>
-          ))}
-        </div>
-      )}
-
-      {(result.llm_explanation || result.llm_error) && (
-        <div className="mb-3">
-          <p className="text-[11px] font-semibold text-muted-foreground uppercase mb-1">AI Explanation</p>
-          {result.llm_explanation ? (
-            <p className="text-xs text-foreground whitespace-pre-wrap">{result.llm_explanation}</p>
-          ) : (
-            <p className="text-xs text-muted-foreground">{result.llm_error}</p>
+      <div className="flex flex-col divide-y divide-border [&>*]:py-3 first:[&>*]:pt-0 last:[&>*]:pb-0">
+        <div className="flex items-center gap-2">
+          <Badge variant={RATING_VARIANT[result.rating]} className="text-sm px-2.5 py-1">
+            {result.rating}
+          </Badge>
+          {result.direction && (
+            <span className="text-sm font-semibold text-foreground">{result.direction}</span>
           )}
         </div>
-      )}
 
-      {result.contextual_analysis && <ContextualAnalysisBlock analysis={result.contextual_analysis} />}
+        {result.invalidation && (
+          <p className="text-sm text-bearish">{result.invalidation}</p>
+        )}
 
-      <p className="text-[10px] text-muted-foreground">Evaluated {formatTimestamp(result.evaluated_at)}</p>
+        {result.criteria.length > 0 && (
+          <div>
+            {result.criteria.map((c) => (
+              <CriterionRow key={c.name} criterion={c} />
+            ))}
+          </div>
+        )}
+
+        {result.missing_conditions.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Missing: {result.missing_conditions.join(", ")}
+          </p>
+        )}
+
+        {result.entry !== null && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <PlanField label="Entry" value={formatPrice(result.entry)} />
+            <PlanField label="Stop Loss" value={formatPrice(result.stop_loss)} />
+            <PlanField label="Target" value={formatPrice(result.target)} />
+            <PlanField label="R:R" value={result.rr !== null ? `1:${result.rr}` : "—"} />
+          </div>
+        )}
+
+        <div>
+          <p className={SUB_LABEL}>FundedNext Risk</p>
+          {result.fundednext.data_available ? (
+            <p className="text-sm text-foreground">
+              {result.fundednext.safety_level} · daily loss used {result.fundednext.daily_loss_used_pct}% (limit for A+: {result.fundednext.max_daily_loss_used_pct_allowed}%)
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">{result.fundednext.reason ?? "Unavailable"}</p>
+          )}
+        </div>
+
+        {result.context_evidence.length > 0 && (
+          <div>
+            <p className={SUB_LABEL}>Context</p>
+            {result.context_evidence.map((e, i) => (
+              <p key={i} className="text-xs text-muted-foreground leading-snug">{e}</p>
+            ))}
+          </div>
+        )}
+
+        {(result.llm_explanation || result.llm_error) && (
+          <div>
+            <p className={SUB_LABEL}>AI Explanation</p>
+            {result.llm_explanation ? (
+              <p className="text-sm text-foreground whitespace-pre-wrap">{result.llm_explanation}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">{result.llm_error}</p>
+            )}
+          </div>
+        )}
+
+        {result.contextual_analysis && <ContextualAnalysisBlock analysis={result.contextual_analysis} />}
+
+        <p className="text-xs text-muted-foreground">Evaluated {formatTimestamp(result.evaluated_at)}</p>
+      </div>
     </Panel>
   );
 }
@@ -212,7 +217,7 @@ export function AplusPanel() {
 function PlanField({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="text-xs text-muted-foreground">{label}</p>
       <p className="font-mono font-medium text-foreground">{value}</p>
     </div>
   );
