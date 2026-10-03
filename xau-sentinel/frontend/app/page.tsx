@@ -5,7 +5,7 @@ import { useMarket } from "@/lib/market-context";
 import { CandlestickChart, type ChartOverlayToggles } from "@/components/charts/candlestick-chart";
 import { ChartControls } from "@/components/charts/chart-controls";
 import { StructurePanel } from "@/components/market/structure-panel";
-import { RegimePanel } from "@/components/market/regime-panel";
+import { SummaryPanel } from "@/components/market/summary-strip";
 import { LiquidityPanel } from "@/components/market/liquidity-panel";
 import { SetupPanel } from "@/components/setup/setup-panel";
 import type { Timeframe } from "@/lib/types";
@@ -47,11 +47,15 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <StructurePanel structure={snapshot?.structure ?? {}} />
-        <RegimePanel regime={snapshot?.regime ?? null} />
-        <LiquidityPanel liquidity={snapshot?.liquidity ?? { sweeps: [], equal_levels: [] }} />
+      <SummaryPanel
+        structure={snapshot?.structure ?? {}}
+        regime={snapshot?.regime ?? null}
+        setup={snapshot?.setup ?? null}
+      />
+      <StructurePanel structure={snapshot?.structure ?? {}} />
+      <div className="flex flex-col gap-3">
         <SetupPanel setup={snapshot?.setup ?? null} />
+        <LiquidityPanel liquidity={snapshot?.liquidity ?? { sweeps: [], equal_levels: [] }} />
       </div>
     </div>
   );

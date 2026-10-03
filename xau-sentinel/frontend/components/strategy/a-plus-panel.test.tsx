@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AplusPanel } from "./a-plus-panel";
 import type { ContextualAnalysis, StrategyEvaluation } from "@/lib/types";
 
 const { strategyAPlus } = vi.hoisted(() => ({ strategyAPlus: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: { strategyAPlus } }));
+
+// The full evaluation is collapsed by default; open it so detail assertions can see it.
+async function renderOpen() {
+  render(<AplusPanel />);
+  await waitFor(() => expect(screen.getByRole("button", { name: /Full evaluation/ })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: /Full evaluation/ }));
+}
 
 const developing: StrategyEvaluation = {
   rating: "DEVELOPING",
@@ -56,7 +63,7 @@ describe("AplusPanel", () => {
 
   it("renders the rating, direction, and criteria checklist", async () => {
     strategyAPlus.mockResolvedValue(developing);
-    render(<AplusPanel />);
+    await renderOpen();
 
     await waitFor(() => expect(screen.getByText(/DEVELOPING/)).toBeInTheDocument());
     expect(screen.getByText(/BUY/)).toBeInTheDocument();
@@ -67,14 +74,14 @@ describe("AplusPanel", () => {
 
   it("shows the FundedNext safety level and daily-loss figure", async () => {
     strategyAPlus.mockResolvedValue(developing);
-    render(<AplusPanel />);
+    await renderOpen();
     await waitFor(() => expect(screen.getByText(/SAFE/)).toBeInTheDocument());
     expect(screen.getByText(/daily loss used 10/)).toBeInTheDocument();
   });
 
   it("shows entry/SL/target/RR once an entry has been planned", async () => {
     strategyAPlus.mockResolvedValue(developing);
-    render(<AplusPanel />);
+    await renderOpen();
     await waitFor(() => expect(screen.getByText("Entry")).toBeInTheDocument());
     expect(screen.getByText("Target")).toBeInTheDocument();
     expect(screen.getByText("1:3.9")).toBeInTheDocument();
@@ -85,13 +92,13 @@ describe("AplusPanel", () => {
       ...developing, rating: "INVALID", missing_conditions: [], criteria: [],
       invalidation: "Setup expired — no entry within 60 minutes of the Previous Day Low sweep.",
     });
-    render(<AplusPanel />);
+    await renderOpen();
     await waitFor(() => expect(screen.getByText(/Setup expired/)).toBeInTheDocument());
   });
 
   it("shows an AI explanation when the provider returned one", async () => {
     strategyAPlus.mockResolvedValue({ ...developing, llm_explanation: "H1 is bullish but M5 has not shifted yet." });
-    render(<AplusPanel />);
+    await renderOpen();
     await waitFor(() => expect(screen.getByText(/H1 is bullish but M5/)).toBeInTheDocument());
   });
 
@@ -99,7 +106,7 @@ describe("AplusPanel", () => {
     strategyAPlus.mockResolvedValue({
       ...developing, llm_explanation: null, llm_error: "AI assistant not configured: AI_API_KEY is not set.",
     });
-    render(<AplusPanel />);
+    await renderOpen();
     await waitFor(() => expect(screen.getByText(/AI assistant not configured/)).toBeInTheDocument());
   });
 
@@ -117,14 +124,14 @@ describe("AplusPanel", () => {
 
   it("renders no contextual-analysis block when the server didn't build one", async () => {
     strategyAPlus.mockResolvedValue(developing);
-    render(<AplusPanel />);
+    await renderOpen();
     await waitFor(() => expect(screen.getByText(/DEVELOPING/)).toBeInTheDocument());
     expect(screen.queryByText("AI Interpretation")).not.toBeInTheDocument();
   });
 
   it("renders Technical/Strategy/Historical/Risk sections and the AI Interpretation when present", async () => {
     strategyAPlus.mockResolvedValue({ ...developing, contextual_analysis: contextualAnalysis });
-    render(<AplusPanel />);
+    await renderOpen();
 
     await waitFor(() => expect(screen.getByText("AI Interpretation")).toBeInTheDocument());
     expect(screen.getByText("Technical")).toBeInTheDocument();
@@ -135,7 +142,7 @@ describe("AplusPanel", () => {
 
   it("does not render a Market Intelligence section when it isn't relevant", async () => {
     strategyAPlus.mockResolvedValue({ ...developing, contextual_analysis: contextualAnalysis });
-    render(<AplusPanel />);
+    await renderOpen();
     await waitFor(() => expect(screen.getByText("AI Interpretation")).toBeInTheDocument());
     expect(screen.queryByText("Market Intelligence")).not.toBeInTheDocument();
   });
@@ -146,14 +153,14 @@ describe("AplusPanel", () => {
       market_intelligence: { relevant: true, macro: "Fed funds 5.25%.", events: null, news: null, cross_asset: null },
     };
     strategyAPlus.mockResolvedValue({ ...developing, contextual_analysis: withMi });
-    render(<AplusPanel />);
+    await renderOpen();
     await waitFor(() => expect(screen.getByText("Market Intelligence")).toBeInTheDocument());
     expect(screen.getByText(/Fed funds 5.25%/)).toBeInTheDocument();
   });
 
   it("never renders probability or win-forecast language in the interpretation section", async () => {
     strategyAPlus.mockResolvedValue({ ...developing, contextual_analysis: contextualAnalysis });
-    render(<AplusPanel />);
+    await renderOpen();
     await waitFor(() => expect(screen.getByText("AI Interpretation")).toBeInTheDocument());
     const bodyText = document.body.textContent ?? "";
     expect(bodyText.toLowerCase()).not.toContain("probability");

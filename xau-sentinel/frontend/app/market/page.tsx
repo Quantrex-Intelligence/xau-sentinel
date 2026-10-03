@@ -1,8 +1,8 @@
 "use client";
 
 import { useMarket } from "@/lib/market-context";
+import { SummaryPanel } from "@/components/market/summary-strip";
 import { StructurePanel } from "@/components/market/structure-panel";
-import { RegimePanel } from "@/components/market/regime-panel";
 import { ZonesPanel } from "@/components/market/zones-panel";
 import { LiquidityPanel } from "@/components/market/liquidity-panel";
 import { EventsPanel } from "@/components/market/events-panel";
@@ -13,14 +13,16 @@ export default function MarketPage() {
   return (
     <div className="p-4 flex flex-col gap-4">
       <h1 className="text-lg font-semibold text-foreground tracking-tight">Market</h1>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <StructurePanel structure={snapshot?.structure ?? {}} />
-        <RegimePanel regime={snapshot?.regime ?? null} />
+      <SummaryPanel
+        structure={snapshot?.structure ?? {}}
+        regime={snapshot?.regime ?? null}
+        setup={snapshot?.setup ?? null}
+      />
+      <StructurePanel structure={snapshot?.structure ?? {}} />
+      <div className="flex flex-col gap-3">
         <ZonesPanel zones={snapshot?.zones ?? {}} />
         <LiquidityPanel liquidity={snapshot?.liquidity ?? { sweeps: [], equal_levels: [] }} />
-        <div className="lg:col-span-2">
-          <EventsPanel />
-        </div>
+        <EventsPanel />
       </div>
     </div>
   );

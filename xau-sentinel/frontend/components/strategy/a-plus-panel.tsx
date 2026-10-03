@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Panel } from "@/components/layout/panel";
+import { Disclosure } from "@/components/layout/disclosure";
 import { Badge, type badgeVariants } from "@/components/ui/badge";
 import { usePolling } from "@/lib/use-polling";
 import { api } from "@/lib/api";
@@ -136,9 +137,11 @@ export function AplusPanel() {
     );
   }
 
+  const passed = result.criteria.filter((c) => c.status === "passed").length;
+
   return (
-    <Panel title="A+ Strategy Evaluation">
-      <div className="flex flex-col divide-y divide-border [&>*]:py-3 first:[&>*]:pt-0 last:[&>*]:pb-0">
+    <>
+      <Panel title="A+ Strategy Evaluation">
         <div className="flex items-center gap-2">
           <Badge variant={RATING_VARIANT[result.rating]} className="text-sm px-2.5 py-1">
             {result.rating}
@@ -147,10 +150,16 @@ export function AplusPanel() {
             <span className="text-sm font-semibold text-foreground">{result.direction}</span>
           )}
         </div>
-
-        {result.invalidation && (
-          <p className="text-sm text-bearish">{result.invalidation}</p>
+        {result.invalidation && <p className="mt-3 text-sm text-bearish">{result.invalidation}</p>}
+        {result.missing_conditions.length > 0 && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Missing: {result.missing_conditions.join(", ")}
+          </p>
         )}
+      </Panel>
+
+      <Disclosure title="Full evaluation" summary={`${passed}/${result.criteria.length} criteria`}>
+      <div className="flex flex-col divide-y divide-border [&>*]:py-3 first:[&>*]:pt-0 last:[&>*]:pb-0">
 
         {result.criteria.length > 0 && (
           <div>
@@ -158,12 +167,6 @@ export function AplusPanel() {
               <CriterionRow key={c.name} criterion={c} />
             ))}
           </div>
-        )}
-
-        {result.missing_conditions.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            Missing: {result.missing_conditions.join(", ")}
-          </p>
         )}
 
         {result.entry !== null && (
@@ -210,7 +213,8 @@ export function AplusPanel() {
 
         <p className="text-xs text-muted-foreground">Evaluated {formatTimestamp(result.evaluated_at)}</p>
       </div>
-    </Panel>
+      </Disclosure>
+    </>
   );
 }
 

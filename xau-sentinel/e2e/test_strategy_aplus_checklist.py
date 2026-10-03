@@ -56,18 +56,20 @@ def main() -> int:
         page.on("requestfailed", lambda req: failed_requests.append(f"{req.method} {req.url}"))
 
         page.goto(f"{BASE}/setups", wait_until="networkidle", timeout=30000)
-        check("UI: Setups page loads", wait_for(page, "Current Setup"))
+        check("UI: Setups page loads", wait_for(page, "Summary"))
         check("UI: A+ Strategy Evaluation panel renders", wait_for(page, "A+ Strategy Evaluation"))
         check("UI: a rating is shown (A+ / DEVELOPING / INVALID)",
               any(wait_for(page, r, timeout=5000) for r in ("A+", "DEVELOPING", "INVALID")))
+        page.get_by_role("button", name="Full evaluation").click()
         check("UI: FundedNext risk section is shown", wait_for(page, "FundedNext Risk", timeout=5000))
         check("UI: an evaluation timestamp is shown", "Evaluated" in page.inner_text("body"))
 
         # The frozen Stage 1 panel must still render untouched alongside it
         # (Panel titles are CSS-uppercased, so compare case-insensitively).
+        page.get_by_role("button", name="Setup checklist").click()
         body_text = page.inner_text("body").upper()
         check("UI: Stage 1 SetupPanel still renders (not disturbed by Stage 4)",
-              "CURRENT SETUP" in body_text and "LIQUIDITY SWEEP" in body_text)
+              "SETUP CHECKLIST" in body_text and "LIQUIDITY SWEEP" in body_text)
 
         check("UI: no browser console errors", len(console_errors) == 0 and len(page_errors) == 0,
               str(console_errors + page_errors))

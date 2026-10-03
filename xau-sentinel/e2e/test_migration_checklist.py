@@ -65,10 +65,10 @@ def main() -> int:
         check("5. Chart renders", canvas_count > 0, f"canvas elements: {canvas_count}")
 
         # 6. Timeframes switch
-        page.get_by_role("button", name="H1", exact=True).click()
+        page.get_by_role("button", name="1h", exact=True).click()
         page.wait_for_timeout(1500)
-        check("6. Timeframes switch", True, "H1 clicked without error")
-        page.get_by_role("button", name="M5", exact=True).click()
+        check("6. Timeframes switch", True, "1h clicked without error")
+        page.get_by_role("button", name="5m", exact=True).click()
         page.wait_for_timeout(1000)
 
         # 7. Structure appears
@@ -83,15 +83,16 @@ def main() -> int:
 
         liquidity_data = httpx.get(f"{API_BASE}/api/market/liquidity", timeout=10).json()
         if liquidity_data.get("equal_levels"):
+            page.get_by_role("button", name="Liquidity").click()
             check("10. Equal highs/lows appear", wait_for(page, "EQUAL HIGHS"))
         else:
             check("10. Equal highs/lows appear", True, "no equal-level events in this mock snapshot (data-dependent, unit-tested separately)")
 
-        check("11. Regime appears", wait_for(page, "MARKET REGIME"))
+        check("11. Regime appears", wait_for(page, "Regime"))
 
         # 12. Setup appears / 13. Risk appears
         page.goto(f"{BASE}/setups", wait_until="networkidle", timeout=30000)
-        check("12. Setup appears", wait_for(page, "CURRENT SETUP"))
+        check("12. Setup appears", wait_for(page, "Setup checklist"))
         check("13. Risk appears", wait_for(page, "Account Balance"))
 
         # 14. Alerts appear
