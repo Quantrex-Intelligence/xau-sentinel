@@ -4,7 +4,16 @@ import { cn } from "@/lib/utils";
 import type { Timeframe } from "@/lib/types";
 import type { ChartOverlayToggles } from "./candlestick-chart";
 
-const TIMEFRAMES: Timeframe[] = ["H4", "H1", "M15", "M5"];
+const TIMEFRAMES: Timeframe[] = ["M1", "M5", "M15", "H1", "H4", "D1"];
+
+const TIMEFRAME_LABELS: Record<Timeframe, string> = {
+  M1: "1m",
+  M5: "5m",
+  M15: "15m",
+  H1: "1h",
+  H4: "4h",
+  D1: "1d",
+};
 
 const OVERLAY_LABELS: { key: keyof ChartOverlayToggles; label: string }[] = [
   { key: "zones", label: "Zones" },
@@ -37,7 +46,7 @@ export function ChartControls({
                 : "text-muted-foreground hover:text-foreground hover:bg-accent"
             )}
           >
-            {tf}
+            {TIMEFRAME_LABELS[tf]}
           </button>
         ))}
       </div>

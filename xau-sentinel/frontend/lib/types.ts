@@ -46,7 +46,7 @@ export interface Structure {
   swings: SwingPoint[];
 }
 
-export type Timeframe = "H4" | "H1" | "M15" | "M5";
+export type Timeframe = "M1" | "M5" | "M15" | "H1" | "H4" | "D1";
 
 export interface Regime {
   regime: string;

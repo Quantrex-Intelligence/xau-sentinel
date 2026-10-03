@@ -23,13 +23,15 @@ except ImportError:
 TIMEFRAMES = ["M5", "M15", "H1", "H4"]
 
 _MT5_TIMEFRAME_ATTR = {
+    "M1": "TIMEFRAME_M1",
     "M5": "TIMEFRAME_M5",
     "M15": "TIMEFRAME_M15",
     "H1": "TIMEFRAME_H1",
     "H4": "TIMEFRAME_H4",
+    "D1": "TIMEFRAME_D1",
 }
 
-_TIMEFRAME_MINUTES = {"M5": 5, "M15": 15, "H1": 60, "H4": 240}
+_TIMEFRAME_MINUTES = {"M1": 1, "M5": 5, "M15": 15, "H1": 60, "H4": 240, "D1": 1440}
 
 
 class MarketDataError(Exception):
