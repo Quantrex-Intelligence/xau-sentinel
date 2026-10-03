@@ -7,7 +7,7 @@ from typing import List
 import pytest
 
 import config
-from ai import assistant, prompts
+from ai import assistant, prompts, verification
 from ai.providers.base import BaseProvider, ProviderConfigError, ProviderRequestError, ProviderResponse
 from ai.schemas import AnswerCategory
 
@@ -25,6 +25,24 @@ class _RecordingProvider(BaseProvider):
     def chat(self, system: str, messages: List[dict], tools=None) -> ProviderResponse:
         self.calls.append({"system": system, "messages": messages, "tools": tools})
         return ProviderResponse(text=self.reply, provider=self.name, model=self.model)
+
+
+class _SequencedProvider(BaseProvider):
+    """A fake provider that returns a different canned reply per call, in
+    order -- needed for the judge layer (ai/verification.py), where a single
+    chat() turn makes two calls (draft, then judge verdict) that must return
+    different text. _RecordingProvider's one fixed reply can't represent
+    that."""
+    name = "fake"
+    model = "fake-model"
+
+    def __init__(self, replies: List[str]):
+        self.replies = replies
+        self.calls: List[dict] = []
+
+    def chat(self, system: str, messages: List[dict], tools=None) -> ProviderResponse:
+        self.calls.append({"system": system, "messages": messages, "tools": tools})
+        return ProviderResponse(text=self.replies[len(self.calls) - 1], provider=self.name, model=self.model)
 
 
 class _FailingProvider(BaseProvider):
@@ -54,6 +72,11 @@ def test_chat_creates_a_conversation_id_when_none_given(monkeypatch):
 
 
 def test_chat_replays_history_on_the_next_turn(monkeypatch):
+    # Isolated from the judge layer (ai/verification.py) -- this test is
+    # about history-replay plumbing, not judging; the judge adds a second
+    # provider.chat() call per turn, which would break this test's call
+    # indices for a reason unrelated to what it's actually checking.
+    monkeypatch.setattr(config, "AI_JUDGE_ENABLED", False)
     provider = _RecordingProvider()
     _use_provider(monkeypatch, provider)
 
@@ -71,6 +94,8 @@ def test_chat_replays_history_on_the_next_turn(monkeypatch):
 
 
 def test_different_conversation_ids_never_share_history(monkeypatch):
+    # Isolated from the judge layer for the same reason as the test above.
+    monkeypatch.setattr(config, "AI_JUDGE_ENABLED", False)
     provider = _RecordingProvider()
     _use_provider(monkeypatch, provider)
 
@@ -229,3 +254,49 @@ def test_secret_api_key_never_leaks_into_the_response(monkeypatch):
 
     assert secret not in result.answer
     assert secret not in str(result.model_dump())
+
+
+def test_judge_approves_a_grounded_answer_unchanged(monkeypatch):
+    provider = _SequencedProvider(["Bias is bullish, per H1 structure.", "OK"])
+    _use_provider(monkeypatch, provider)
+
+    result = assistant.chat("What is the current bias?")
+
+    assert result.answer == "Bias is bullish, per H1 structure."
+    assert len(provider.calls) == 2  # draft, then judge
+
+
+def test_judge_violation_replaces_the_answer_with_the_override_message(monkeypatch):
+    provider = _SequencedProvider([
+        "...the setup is flagging a sell bias, but that alone doesn't mean X...",
+        "VIOLATION: cites live setup data while answering an unrelated personal question",
+    ])
+    _use_provider(monkeypatch, provider)
+
+    result = assistant.chat("Should I gamble?")
+
+    assert result.answer == verification.JUDGE_OVERRIDE_MESSAGE
+    assert result.category == AnswerCategory.UNKNOWN
+
+
+def test_judge_is_skipped_when_disabled(monkeypatch):
+    monkeypatch.setattr(config, "AI_JUDGE_ENABLED", False)
+    provider = _RecordingProvider(reply="An ordinary answer.")
+    _use_provider(monkeypatch, provider)
+
+    result = assistant.chat("Question")
+
+    assert result.answer == "An ordinary answer."
+    assert len(provider.calls) == 1  # draft only, no judge call
+
+
+def test_judge_is_skipped_when_a_cheaper_check_already_overrode_the_answer(monkeypatch):
+    # No point spending a second call judging a message we already know is
+    # the fixed safety-override text.
+    provider = _RecordingProvider(reply="You should BUY NOW at market.")
+    _use_provider(monkeypatch, provider)
+
+    result = assistant.chat("Should I enter?")
+
+    assert result.answer == prompts.SAFETY_OVERRIDE_MESSAGE
+    assert len(provider.calls) == 1  # directive check caught it before the judge ever ran

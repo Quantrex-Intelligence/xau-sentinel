@@ -95,6 +95,12 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "anthropic").strip().lower()  # "anthropi
 AI_API_KEY = os.getenv("AI_API_KEY", "").strip()
 AI_MODEL = os.getenv("AI_MODEL", "claude-haiku-4-5-20251001").strip()
 AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", 1024))
+# A second, narrow LLM call (ai/verification.py) that checks a chat answer
+# against the real context before it's shown to the user — catches
+# hallucinations the regex safety filters can't (see ai/prompts.py). Doubles
+# per-turn latency/provider usage, so it can be switched off if that's not
+# an acceptable tradeoff.
+AI_JUDGE_ENABLED = os.getenv("AI_JUDGE_ENABLED", "true").strip().lower() == "true"
 
 
 # --- Stage 4: A+ Strategy Evaluation ---

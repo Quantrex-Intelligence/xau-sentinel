@@ -28,6 +28,7 @@ from journal.database import get_connection
 from journal.schema import ai_messages
 from ai import context as context_builder
 from ai import prompts
+from ai import verification
 from ai.knowledge import retrieval as knowledge_retrieval
 from ai.knowledge.schemas import KnowledgeSourceOut
 from ai.memory import retrieval as memory_retrieval
@@ -102,6 +103,18 @@ def chat(message: str, conversation_id: Optional[str] = None,
         # Nothing was available to ground the answer in — it can only be
         # framed as INTERPRETATION-of-nothing, which is really UNKNOWN.
         overall_category = AnswerCategory.UNKNOWN
+
+    # A second, narrow LLM call that checks the draft against the real
+    # context — catches hallucinations the two deterministic filters above
+    # can't (a fabricated RELEVANCE between real facts, not a fabricated
+    # value; see ai/verification.py). Skipped once a cheaper check has
+    # already replaced the answer — no point judging a message we already
+    # know is the fixed override text.
+    if config.AI_JUDGE_ENABLED and overall_category != AnswerCategory.UNKNOWN:
+        verdict = verification.judge_answer(provider, message, assembled.render(), answer_text)
+        if verdict.violated:
+            answer_text = verification.JUDGE_OVERRIDE_MESSAGE
+            overall_category = AnswerCategory.UNKNOWN
 
     _save_turn(conversation_id, message, answer_text)
 
