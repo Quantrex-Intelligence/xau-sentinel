@@ -1,11 +1,31 @@
 """Shared fixtures and synthetic-candle helpers for the XAU Sentinel test suite."""
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
 import pytest
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
-import config
+# Point the whole test process at a dedicated test database BEFORE config and
+# journal.database read DATABASE_URL. Otherwise tests would share the developer's
+# dev database, and leftover dev rows would change exact-count assertions.
+# The test database is dropped and recreated every session (see _migrated_database),
+# so tests never depend on what was left behind by a previous run.
+TEST_DB_NAME = "xau_sentinel_test"
+load_dotenv()
+_dev_url = make_url(os.environ["DATABASE_URL"])
+os.environ["DATABASE_URL"] = _dev_url.set(database=TEST_DB_NAME).render_as_string(hide_password=False)
+# Force mock data and the mock AI provider for the whole test process, regardless of the
+# developer's .env (MODE=live, a real AI_PROVIDER). Some modules read these at import
+# time, so this has to happen before config is imported. Tests that need another value
+# set it themselves with monkeypatch.
+os.environ["MODE"] = "mock"
+os.environ["AI_PROVIDER"] = "mock"
+
+import config  # noqa: E402  (must follow the DATABASE_URL override above)
 
 
 def make_candles(rows, tf_minutes=5, start=None, now=None):
@@ -200,9 +220,29 @@ def _migrated_database():
     from alembic import command
     from alembic.config import Config
 
+    _recreate_test_database()
     cfg = Config()
     cfg.set_main_option("script_location", str(Path(__file__).resolve().parent.parent / "alembic"))
     command.upgrade(cfg, "head")
+
+
+def _recreate_test_database() -> None:
+    """Drop and recreate the dedicated test database so every session starts
+    empty. Runs against the server's maintenance DB, never the dev DB, and
+    only ever touches TEST_DB_NAME."""
+    assert config.DATABASE_URL.endswith(f"/{TEST_DB_NAME}"), config.DATABASE_URL
+    admin_url = make_url(config.DATABASE_URL).set(database="postgres")
+    admin = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{TEST_DB_NAME}" WITH (FORCE)'))
+            conn.execute(text(f'CREATE DATABASE "{TEST_DB_NAME}"'))
+    finally:
+        admin.dispose()
+    # The journal engine pools connections to the test database. Dispose it so no
+    # pooled connection survives the drop above.
+    from journal import database
+    database.engine.dispose()
 
 
 @pytest.fixture
@@ -233,6 +273,14 @@ def temp_db(_migrated_database):
         database._test_connection.reset(token)
         outer_txn.rollback()
         connection.close()
+
+
+@pytest.fixture(autouse=True)
+def _every_test_uses_a_rolled_back_database(temp_db):
+    """Every test runs inside the rolled-back transaction, not only the tests
+    that remember to ask for temp_db. Before this, any test that forgot the
+    fixture wrote to, and counted rows in, whatever the shared database held."""
+    yield
 
 
 @pytest.fixture(autouse=True)

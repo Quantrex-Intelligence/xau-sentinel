@@ -22,7 +22,9 @@ export function Panel({
   return (
     <Card size={density === "compact" ? "sm" : "default"} className={className}>
       <CardHeader>
-        <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+        {/* Rendered as a real heading so screen readers and heading-role
+            queries find each panel. CardTitle is a plain div. */}
+        <CardTitle className="text-sm font-semibold"><h3 className="m-0">{title}</h3></CardTitle>
         {action && <CardAction>{action}</CardAction>}
       </CardHeader>
       <CardContent>{children}</CardContent>

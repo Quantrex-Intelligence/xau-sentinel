@@ -295,9 +295,51 @@ _PREDICTIVE_PROBABILITY_PATTERNS = [
 ]
 
 
+# Realistic paraphrases of a win probability or forecast that the literal list
+# above misses ("more likely to win", "favorable odds", "a 70 percent chance",
+# "confidence of 80%"). Each match is skipped when a negation sits just before
+# it, so an honest disclaimer ("not likely to win", "no probability of success
+# is implied") is never replaced. Bare mentions of the word "probability" are
+# deliberately NOT flagged: a disclaimer that says a review does not imply a
+# probability is correct interpretation, not a claim.
+_PARAPHRASE_PATTERNS = [
+    re.compile(r"\blikely\s+to\s+(win|lose|succeed|fail|work|hit|reach|profit)\b", re.IGNORECASE),
+    re.compile(r"\b(good|favou?rable|high|strong|better|poor)\s+odds\b", re.IGNORECASE),
+    re.compile(r"\b\d{1,3}\s*(percent|pct)\s+(chance|probability|likelihood)\b", re.IGNORECASE),
+    re.compile(r"\bconfidence\s+(of|at|level\s+of|score\s+of)\s+\d{1,3}\s*%?", re.IGNORECASE),
+    re.compile(r"\bconfiden(?:t|ce)\s+(?:that\s+)?(?:this|it|the\s+\w+)\s+(?:will|should|is\s+going\s+to)\s+"
+               r"(?:win|work|succeed|profit|hit|reach)\b", re.IGNORECASE),
+    re.compile(r"\bexpect(?:s|ed)?\s+(?:this\s+|it\s+|the\s+\w+\s+)?(?:trade\s+)?to\s+(?:win|work|succeed|profit|hit)\b",
+               re.IGNORECASE),
+    re.compile(r"\bchance\s+(?:it|this|the\s+\w+)\s+(?:will\s+)?(?:wins?|works?|succeeds?|hits?|reach(?:es)?)\b",
+               re.IGNORECASE),
+    re.compile(r"\bprobability\s+of\s+(?:success|winning|a\s+win|profit|hitting)\b", re.IGNORECASE),
+    re.compile(r"\bwill\s+(?:work|play\s+out|hit\s+(?:the\s+)?(?:target|tp))\b", re.IGNORECASE),
+]
+
+_NEGATION_BEFORE = re.compile(r"\b(not|no|never|nor|without|isn't|aren't|doesn't|does\s+not|is\s+not)\b\s*(?:\w+\s+){0,3}$",
+                              re.IGNORECASE)
+
+
+def _is_negated_match(text: str, start: int) -> bool:
+    """True when a negation word sits within a few words before the match."""
+    window = text[max(0, start - 40):start]
+    return _NEGATION_BEFORE.search(window) is not None
+
+
+def _has_unnegated_paraphrase(text: str) -> bool:
+    for pattern in _PARAPHRASE_PATTERNS:
+        for match in pattern.finditer(text):
+            if not _is_negated_match(text, match.start()):
+                return True
+    return False
+
+
 def contains_predictive_probability_claim(text: str) -> bool:
     normalized = _normalize(text)
-    return any(p.search(normalized) for p in _PREDICTIVE_PROBABILITY_PATTERNS)
+    if any(p.search(normalized) for p in _PREDICTIVE_PROBABILITY_PATTERNS):
+        return True
+    return _has_unnegated_paraphrase(normalized)
 
 
 _HEADER_MARKER = re.compile(r"#{3,}")

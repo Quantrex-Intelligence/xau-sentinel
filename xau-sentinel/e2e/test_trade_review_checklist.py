@@ -12,9 +12,15 @@ done here via API for speed/determinism) — deterministic review never
 depends on live market timing, unlike Stage 13's monitoring alerts.
 """
 import sys
+from pathlib import Path
 
 import httpx
 from playwright.sync_api import Page, sync_playwright
+
+# `python e2e/<file>.py` puts e2e/ on sys.path, not the project root, so add the
+# xau-sentinel root explicitly before importing the production safety detector.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from ai.prompts import contains_predictive_probability_claim  # noqa: E402
 
 BASE = "http://localhost:3000"
 API_BASE = "http://127.0.0.1:8000"
@@ -70,9 +76,15 @@ def main() -> int:
     # --- AI review — an explicit, separate action ---
     generated = httpx.post(f"{API_BASE}/api/trade-review/{trade_id}/generate", timeout=20).json()
     check("API: POST /generate populates an interpretation", bool(generated.get("interpretation")))
-    generated_text = str(generated).lower()
-    check("API: generated review never mentions probability/win-forecast/directive language",
-          "probability" not in generated_text and "buy now" not in generated_text and "sell now" not in generated_text)
+    # Semantic check, not a bare-word search: the production safety net that decides
+    # whether a predictive claim slipped through. Negated disclaimers such as "does not
+    # imply probability for the outcome" are allowed; real forecasts and paraphrases are not.
+    interpretation = generated.get("interpretation") or ""
+    generated_text = interpretation.lower()
+    check("API: generated review contains no predictive probability/win-forecast claim",
+          not contains_predictive_probability_claim(interpretation))
+    check("API: generated review contains no trading instruction",
+          "buy now" not in generated_text and "sell now" not in generated_text)
 
     # --- Immutability: generating a review must never change the trade itself ---
     trade_after = httpx.get(f"{API_BASE}/api/journal/trades/{trade_id}", timeout=15).json()
@@ -124,8 +136,8 @@ def main() -> int:
                 check("UI: AI review already present (cached from the API call above)",
                       wait_for(page, "AI Review", timeout=3000))
 
-        check("UI: no probability/win-forecast language anywhere on the page",
-              "probability" not in page.inner_text("body").lower())
+        check("UI: no predictive probability/win-forecast claim anywhere on the page",
+              not contains_predictive_probability_claim(page.inner_text("body")))
         check("UI: no browser console errors", len(console_errors) == 0 and len(page_errors) == 0,
               str(console_errors + page_errors))
         check("UI: no failed network requests", len(failed_requests) == 0, str(failed_requests))

@@ -46,8 +46,11 @@ def main() -> int:
         page.on("requestfailed", lambda req: failed_requests.append(f"{req.method} {req.url}"))
 
         page.goto(f"{BASE}/fundednext", wait_until="networkidle", timeout=30000)
+        # The page title is the h1 "FundedNext" with a "Read-only monitoring" line beside
+        # the mode badge (redesign 9053c10 replaced the old "FundedNext — read-only" title).
         try:
-            page.get_by_text("FundedNext — read-only", exact=False).wait_for(state="visible", timeout=15000)
+            page.get_by_role("heading", name="FundedNext", exact=True).wait_for(state="visible", timeout=15000)
+            page.get_by_text("Read-only monitoring", exact=False).wait_for(state="visible", timeout=5000)
             check("UI: FundedNext page loads", True)
         except Exception:
             check("UI: FundedNext page loads", False)
@@ -56,7 +59,7 @@ def main() -> int:
         check("UI: mock mode clearly labeled", "MOCK" in body)
         check("UI: safety banner visible", any(s in body for s in ("SAFE", "WARNING", "CRITICAL", "BREACHED", "UNKNOWN")))
         check("UI: loss limit bars visible", "Daily Loss Limit" in body and "Maximum Loss Limit" in body)
-        check("UI: account configuration selector visible", "Account Configuration" in body.upper() or "ACCOUNT CONFIGURATION" in body)
+        check("UI: account configuration selector visible", "account configuration" in body.lower())
 
         # Interactive: switch account type and confirm the page actually
         # recomputes (2-Step's 10%/5% max/daily loss differs from Lite's 8%/4%).

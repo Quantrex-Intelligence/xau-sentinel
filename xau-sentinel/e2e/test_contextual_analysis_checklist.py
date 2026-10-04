@@ -64,6 +64,14 @@ def main() -> int:
         except Exception:
             check("UI: Setups page still loads with the A+ panel", False)
 
+        # The contextual analysis blocks live inside the A+ panel's "Full evaluation"
+        # disclosure, which is collapsed by default since the summary-first layout
+        # (a10aa88). Open it the way a user would before checking its contents.
+        try:
+            page.get_by_role("button", name="Full evaluation", exact=False).first.click(timeout=10000)
+        except Exception:
+            pass  # the section checks below report the failure if it never opened
+
         try:
             page.get_by_text("AI Interpretation", exact=False).wait_for(state="visible", timeout=15000)
             check("UI: AI Interpretation section renders", True)

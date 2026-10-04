@@ -119,6 +119,8 @@ def test_generate_review_degrades_when_provider_request_fails(monkeypatch):
     "You should buy this setup.",
     "I recommend entering this trade.",
     "This setup has a 90% chance of winning.",
+    "This setup is more likely to win than to lose.",
+    "The entry has favorable odds of working out.",
 ])
 def test_unsafe_llm_reply_is_replaced_by_safety_override(monkeypatch, reply):
     from ai.prompts import SAFETY_OVERRIDE_MESSAGE
@@ -155,3 +157,10 @@ def test_service_never_creates_a_memory_record():
     source = inspect.getsource(service_mod)
     for banned in ("create_memory", "memory.store"):
         assert banned not in source
+
+
+def test_negated_disclaimer_reply_is_kept_not_replaced(monkeypatch):
+    reply = "This does not imply probability for the outcome."
+    monkeypatch.setattr(service_mod, "get_provider", lambda: _RecordingProvider(reply=reply))
+    review = service_mod.generate_review(TRADE_ID)
+    assert review.interpretation == reply

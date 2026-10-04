@@ -8,7 +8,7 @@ from typing import List
 import pytest
 
 import config
-from ai import assistant, prompts
+from ai import assistant, prompts, verification
 from ai.providers.base import BaseProvider, ProviderResponse, ToolCall
 from ai.providers.mock_provider import MockProvider
 
@@ -16,15 +16,26 @@ from ai.providers.mock_provider import MockProvider
 class _ScriptedProvider(BaseProvider):
     """Returns pre-programmed responses in order, recording every call it
     receives — precise, deterministic control over a multi-round exchange,
-    with no real network/SDK dependency."""
+    with no real network/SDK dependency.
+
+    The judge layer (ai/verification.py) makes one extra call after each
+    grounded answer. That call is recognised by its own system prompt and
+    answered the way the real judge answers a clean draft ("OK"), without
+    consuming a scripted response. Judge calls are kept in `judge_calls`, so
+    `calls` still holds only the assistant's own provider rounds."""
     name = "fake"
     model = "fake-model"
 
-    def __init__(self, responses: List[ProviderResponse]):
+    def __init__(self, responses: List[ProviderResponse], judge_reply: str = "OK"):
         self.responses = list(responses)
         self.calls: List[dict] = []
+        self.judge_calls: List[dict] = []
+        self.judge_reply = judge_reply
 
     def chat(self, system, messages, tools=None) -> ProviderResponse:
+        if system == verification.JUDGE_SYSTEM_PROMPT:
+            self.judge_calls.append({"messages": [dict(m) for m in messages]})
+            return ProviderResponse(text=self.judge_reply, provider=self.name, model=self.model)
         self.calls.append({"system": system, "messages": [dict(m) for m in messages], "tools": tools})
         return self.responses.pop(0)
 
@@ -309,3 +320,32 @@ def test_full_setup_analysis_uses_several_tools_within_the_round_limit(monkeypat
     tool_names = {t.name for t in result.tools_used}
     assert tool_names == {"get_market_structure", "get_current_setup", "get_risk_status"}
     assert "AI Interpretation" in result.answer
+
+
+def test_judge_is_consulted_once_after_the_final_answer_not_between_tool_rounds(monkeypatch):
+    provider = _ScriptedProvider([
+        _tool_use_response(ToolCall(id="call-1", name="get_market_state", arguments={})),
+        _text_response("Here is the current price based on the tool result."),
+    ])
+    _use_provider(monkeypatch, provider)
+
+    assistant.chat("What's the current price?")
+
+    assert len(provider.calls) == 2  # the two assistant rounds, unchanged by the judge
+    assert len(provider.judge_calls) == 1  # one judge pass, after the final answer
+
+
+def test_judge_violation_replaces_a_tool_grounded_answer(monkeypatch):
+    provider = _ScriptedProvider(
+        [
+            _tool_use_response(ToolCall(id="call-1", name="get_market_state", arguments={})),
+            _text_response("The setup is bullish and will certainly rally today."),
+        ],
+        judge_reply="VIOLATION: states a forecast that is not in the tool result",
+    )
+    _use_provider(monkeypatch, provider)
+
+    result = assistant.chat("What's the current price?")
+
+    assert result.answer == verification.JUDGE_OVERRIDE_MESSAGE
+    assert len(provider.judge_calls) == 1
