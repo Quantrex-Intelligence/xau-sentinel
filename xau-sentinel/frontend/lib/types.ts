@@ -782,3 +782,168 @@ export interface MarketIntelligenceContext {
   news: NewsArticle[];
   sources: string[];
 }
+
+// Analysis Engine V2 (GET /api/analysis/v2). Mirrors api/schemas_analysis_v2.py.
+// Facts are observed from closed candles, interpretation is derived from facts,
+// and scenarios are conditional. None of these carries a probability or a score.
+export type AnalysisV2Status = "OK" | "STALE" | "INSUFFICIENT_DATA" | "UNAVAILABLE";
+
+export interface AnalysisV2Freshness {
+  generated_at_utc: string;
+  as_of_utc: string | null;
+  m5_bar_close_utc: string | null;
+  age_seconds: number | null;
+  threshold_seconds: number;
+  stale: boolean;
+}
+
+export interface AnalysisV2TimeframeSource {
+  bars: number;
+  last_bar_open_utc: string | null;
+  last_bar_closed: boolean | null;
+}
+
+export interface AnalysisV2Source {
+  provider: string;
+  mode: string;
+  symbol: string;
+  server_timezone: string;
+  timeframes: Record<string, AnalysisV2TimeframeSource>;
+}
+
+export interface AnalysisV2Dimension {
+  state: string;
+  detail: string;
+}
+
+export interface AnalysisV2TimeframeStructure {
+  timeframe: string;
+  state: string;
+  reason: string;
+  last_bos: string | null;
+  last_mss: string | null;
+  last_high: number | null;
+  last_low: number | null;
+  last_high_label: string | null;
+  last_low_label: string | null;
+}
+
+export interface AnalysisV2SweepOut {
+  time_utc: string | null;
+  label: string;
+  level_name: string;
+  level_price: number | null;
+  kind: string;
+}
+
+export interface AnalysisV2Observations {
+  current_price: number | null;
+  atr_m5: number | null;
+  atr_h1: number | null;
+  atr_percentile_m5: number | null;
+  atr_change_m5: number | null;
+  range_ratio_m5: number | null;
+  displacement_m5: string | null;
+  volume_m5: { relative_volume: number | null; volume_percentile: number | null; state: string };
+  session: string | null;
+  zones: Record<string, number>;
+  zone_distances_atr: Record<string, number>;
+  recent_high: number | null;
+  recent_low: number | null;
+  sweeps: AnalysisV2SweepOut[];
+  equal_levels: AnalysisV2SweepOut[];
+}
+
+export interface AnalysisV2Event {
+  kind: string;
+  timeframe: string;
+  time_utc: string;
+  direction: string | null;
+  price: number | null;
+  detail: string;
+}
+
+export interface AnalysisV2Component {
+  label: string;
+  price: number;
+  timeframe: string;
+  kind: string;
+  source: string;
+  note: string;
+}
+
+export interface AnalysisV2KeyArea {
+  low: number;
+  high: number;
+  side: string;
+  strength_status: string;
+  strength_reason: string;
+  relation: string;
+  distance_atr: number | null;
+  reasons: string[];
+  components: AnalysisV2Component[];
+  events: AnalysisV2Event[];
+}
+
+export interface AnalysisV2Lean {
+  source: string;
+  timeframe: string;
+  lean: "bullish" | "bearish" | "neutral";
+  detail: string;
+}
+
+export interface AnalysisV2Confluence {
+  reference: "bullish" | "bearish" | null;
+  reference_reason: string;
+  supporting: AnalysisV2Lean[];
+  contradicting: AnalysisV2Lean[];
+  neutral: AnalysisV2Lean[];
+  bullish: AnalysisV2Lean[];
+  bearish: AnalysisV2Lean[];
+  cross_timeframe_conflicts: string[];
+}
+
+export interface AnalysisV2Context {
+  direction: AnalysisV2Dimension;
+  structure: Record<string, AnalysisV2Dimension>;
+  regime: AnalysisV2Dimension;
+  volatility: AnalysisV2Dimension;
+  volume: AnalysisV2Dimension;
+  liquidity: AnalysisV2Dimension;
+  momentum: AnalysisV2Dimension;
+  session: AnalysisV2Dimension;
+  price_location: AnalysisV2Dimension;
+}
+
+export interface AnalysisV2Scenario {
+  name: string;
+  direction: "bullish" | "bearish" | null;
+  condition: string;
+  supporting_conditions: string[];
+  confirmation_requirements: string[];
+  invalidation_conditions: string[];
+  key_area_refs: string[];
+  event_refs: string[];
+  disclaimer: string;
+}
+
+export interface AnalysisV2Response {
+  status: AnalysisV2Status;
+  status_reason: string;
+  freshness: AnalysisV2Freshness;
+  source: AnalysisV2Source;
+  notes: string[];
+  data_issues: string[];
+  facts: {
+    observations: AnalysisV2Observations | null;
+    structure: Record<string, AnalysisV2TimeframeStructure>;
+  };
+  events: AnalysisV2Event[];
+  interpretation: {
+    context: AnalysisV2Context | null;
+    key_areas: AnalysisV2KeyArea[];
+    confluence: AnalysisV2Confluence | null;
+    narrative: string[];
+  };
+  scenarios: AnalysisV2Scenario[];
+}

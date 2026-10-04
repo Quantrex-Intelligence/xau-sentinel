@@ -38,6 +38,7 @@ import type {
   TradeCreateInput,
   TradeReview,
   TradeReviewSummary,
+  AnalysisV2Response,
 } from "./types";
 
 // Same-origin by default: next.config.ts rewrites /api/* to the API server,
@@ -144,6 +145,7 @@ export const api = {
     request<MemoryRecord>(`/api/ai/memory/${id}/archive`, { method: "POST" }),
 
   strategyAPlus: () => request<StrategyEvaluation>("/api/strategy/aplus"),
+  analysisV2: () => request<AnalysisV2Response>("/api/analysis/v2"),
 
   similarityCurrent: () => request<SimilarityResult>("/api/similarity/current"),
   similarityForTrade: (tradeId: number) => request<SimilarityResult>(`/api/similarity/trade/${tradeId}`),

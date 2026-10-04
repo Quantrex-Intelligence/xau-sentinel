@@ -21,7 +21,7 @@ from ai.knowledge.seed_documents import seed_if_empty as seed_knowledge_if_empty
 from ai.monitoring import engine as monitoring_engine
 from ai.notifications import delivery as notification_delivery
 from api.routes import (
-    ai, alerts, digest, explanations, fundednext, fundednext_mcp, journal, knowledge, market, market_intelligence,
+    ai, alerts, analysis_v2, digest, explanations, fundednext, fundednext_mcp, journal, knowledge, market, market_intelligence,
     memory, monitoring, notifications, risk, settings, setup, similarity, strategy, strategy_analytics,
     trade_review,
 )
@@ -227,6 +227,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications.router)
     app.include_router(explanations.router)
     app.include_router(trade_review.router)
+    app.include_router(analysis_v2.router)
     app.include_router(strategy_analytics.router)
     app.include_router(digest.router)
     app.include_router(ws.router)

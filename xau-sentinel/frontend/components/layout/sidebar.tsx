@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
+  Layers,
   LayoutDashboard,
   LineChart,
   Target,
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/market", label: "Market", icon: LineChart },
   { href: "/setups", label: "Setups", icon: Target },
+  { href: "/analysis", label: "Analysis", icon: Layers },
   { href: "/fundednext", label: "FundedNext", icon: ShieldAlert },
   { href: "/journal", label: "Journal", icon: BookText },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
