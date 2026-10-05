@@ -23,7 +23,7 @@ from analysis.structure import closed_only, is_feed_stale
 from analysis.v2 import key_areas as ka
 from analysis.v2.confluence import Confluence, build_confluence
 from analysis.v2.context import MarketContext, build_context
-from analysis.v2.events import Event, price_events, sort_events, structure_events
+from analysis.v2.events import Event, dedupe_events, price_events, sort_events, structure_events
 from analysis.v2.narrative import build_narrative
 from analysis.v2.observations import TIMEFRAMES, Observations, build_observations
 from analysis.v2.relations import AreaState, classify_area
@@ -75,11 +75,11 @@ def build_analysis(candles: Dict[str, pd.DataFrame], now: Optional[datetime] = N
     raw_areas = ka.build_key_areas(m5, closed.get("H1"), closed.get("H4"), obs.current_price)
     area_states = tuple(classify_area(a, m5, obs.current_price, obs.atr_m5) for a in raw_areas)
 
-    events = sort_events(
+    events = dedupe_events(sort_events(
         structure_events(closed)
         + price_events(closed, obs)
         + [e for a in area_states for e in a.events]
-    )
+    ))
     context = build_context(obs, closed, events)
     confluence = build_confluence(obs, context, events, list(area_states))
     scenarios = build_scenarios(obs, context, confluence, list(area_states), events)

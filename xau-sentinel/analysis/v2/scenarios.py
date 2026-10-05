@@ -6,12 +6,17 @@ These are conditions, not predictions and not trade instructions. None of them
 carries a probability, and none tells anyone to enter, exit or size anything.
 """
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import List, Optional, Tuple
 
 from analysis.v2.confluence import Confluence
+from analysis.v2.narrative import event_line
 from analysis.v2.context import MarketContext
 from analysis.v2.observations import Observations
 from analysis.v2.relations import AreaState
+
+RECENT_WINDOW = timedelta(minutes=30)  # events older than this are not cited as current
+MAX_EVENT_REFS = 3
 
 DISCLAIMER = ("Conditional scenarios describe what would need to happen. They are not predictions "
               "and not trade signals.")
@@ -42,6 +47,12 @@ def _area_label(a: AreaState) -> str:
     return f"{a.area.low:.2f}-{a.area.high:.2f} ({a.relation})"
 
 
+def _structure_line(obs: Observations) -> str:
+    st = obs.structure
+    return ("Structure: H4 {}, H1 {}, M15 {}, M5 {}; no clear trend on H1 or H4.".format(
+        st["H4"].state.lower(), st["H1"].state.lower(), st["M15"].state.lower(), st["M5"].state.lower()))
+
+
 def _sup(confluence: Confluence, direction: str) -> Tuple[str, ...]:
     return tuple(sorted({f"{l.source}: {l.detail}" for l in confluence.supporting if l.lean == direction}))
 
@@ -52,8 +63,16 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
     if price is None:
         return ()
     h1, m5 = obs.structure["H1"], obs.structure["M5"]
-    event_refs = tuple(sorted(f"{e.timeframe} {e.kind} {e.direction or ''} at {e.time:%H:%M} UTC: {e.detail}".replace("  ", " ")
-                              for e in events))
+    window_start = obs.as_of - RECENT_WINDOW if obs.as_of is not None else None
+    recent = sorted((e for e in events if window_start is None or e.time >= window_start), key=lambda e: e.time)
+
+    def refs(kinds):
+        picked = [e for e in recent if e.kind in kinds][-MAX_EVENT_REFS:]
+        return tuple(event_line(e) for e in picked)
+
+    ref_kinds_continuation = {"BOS", "MSS", "SWEEP", "BREAKOUT", "RETEST", "FAILED_BREAKOUT"}
+    ref_kinds_reversal = {"MSS", "SWEEP", "REJECTION", "FAILED_BREAKOUT", "DISPLACEMENT"}
+    ref_kinds_range = {"COMPRESSION", "VOLATILITY_EXPANSION", "VOLATILITY_CONTRACTION", "SWEEP", "REJECTION", "RANGE_EXPANSION"}
     scenarios: List[Scenario] = []
     ref = confluence.reference
 
@@ -68,7 +87,7 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
             invalid = [f"M5 closes below {h1.last_low:.2f} (latest H1 swing low)"
                        if h1.last_low is not None else "M5 closes below its latest swing low",
                        "H1 structure turns BEARISH"]
-            condition = "Continuation would need a higher break: M5 closing above the latest H1 swing high and staying there."
+            condition = "Continuation needs M5 to close above the latest H1 swing high and hold above it."
         else:
             level_text = (f"M5 closes below {h1.last_low:.2f} (latest H1 swing low), and the next closed M5 bar "
                           f"does not close back above it"
@@ -76,14 +95,14 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
             invalid = [f"M5 closes above {h1.last_high:.2f} (latest H1 swing high)"
                        if h1.last_high is not None else "M5 closes above its latest swing high",
                        "H1 structure turns BULLISH"]
-            condition = "Continuation would need a lower break: M5 closing below the latest H1 swing low and staying there."
+            condition = "Continuation needs M5 to close below the latest H1 swing low and hold below it."
         scenarios.append(Scenario(
             name=name, direction=ref, condition=condition,
             supporting_conditions=_sup(confluence, ref),
             confirmation_requirements=(level_text,),
             invalidation_conditions=tuple(invalid),
             key_area_refs=(_area_label(target),) if target else (),
-            event_refs=tuple(e for e in event_refs if (" BOS " in e or " MSS " in e or "SWEEP" in e)),
+            event_refs=refs(ref_kinds_continuation),
         ))
 
         opposite = "bearish" if up else "bullish"
@@ -101,7 +120,7 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
                 invalidation_conditions=(f"M5 closes {'above' if up else 'below'} {m5_invalid:.2f} "
                                          f"(latest M5 swing {'high' if up else 'low'}), which would undo the shift",),
                 key_area_refs=tuple(_area_label(a) for a in areas if a.relation in ("REJECTING", "BROKEN"))[:2],
-                event_refs=tuple(e for e in event_refs if "SWEEP" in e or "MSS" in e),
+                event_refs=refs(ref_kinds_reversal),
             ))
 
     else:
@@ -114,12 +133,12 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
                 name="RANGE", direction=None,
                 condition=f"While price stays within {rng_lo:.2f}-{rng_hi:.2f}, the market is treated as two-sided. "
                           f"A directional read needs one edge to break with follow-through.",
-                supporting_conditions=tuple(sorted({f"{l.source}: {l.detail}" for l in confluence.neutral}))[:6],
+                supporting_conditions=(_structure_line(obs),),
                 confirmation_requirements=(f"A rejection of either edge of {rng_lo:.2f}-{rng_hi:.2f} "
                                            f"on M5 before a directional break",),
                 invalidation_conditions=(f"M5 closes beyond {rng_hi:.2f} or {rng_lo:.2f} with a displacement bar, "
                                          f"which would end the range read",),
                 key_area_refs=tuple(_area_label(a) for a in areas if a.relation in ("INSIDE", "APPROACHING"))[:3],
-                event_refs=tuple(e for e in event_refs if "COMPRESSION" in e or "VOLATILITY" in e or "SWEEP" in e),
+                event_refs=refs(ref_kinds_range),
             ))
     return tuple(scenarios)

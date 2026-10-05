@@ -96,6 +96,14 @@ class EventOut(BaseModel):
     detail: str
 
 
+class CorroborationOut(BaseModel):
+    """Another record of the SAME level (same timeframe and price), kept for provenance."""
+    timeframe: str
+    kind: str
+    source: str
+    note: str
+
+
 class ComponentOut(BaseModel):
     label: str
     price: float
@@ -103,6 +111,7 @@ class ComponentOut(BaseModel):
     kind: str
     source: str
     note: str
+    also_recorded_as: List[CorroborationOut] = Field(default_factory=list)
 
 
 class KeyAreaOut(BaseModel):

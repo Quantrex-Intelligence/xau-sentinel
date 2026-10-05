@@ -95,7 +95,7 @@ function response(overrides: Partial<AnalysisV2Response> = {}): AnalysisV2Respon
           distance_atr: 0.03,
           reasons: ["Price is 0.03 ATR from the nearest edge of the area."],
           components: [
-            { label: "H1 swing low", price: 4139.07, timeframe: "H1", kind: "H1_SWING_LOW", source: "analysis.structure", note: "" },
+            { label: "H1 swing low", price: 4139.07, timeframe: "H1", kind: "H1_SWING_LOW", source: "analysis.structure", note: "", also_recorded_as: [] },
           ],
           events: [],
         },
@@ -244,5 +244,15 @@ describe("utcClock", () => {
   it("returns a dash for missing or invalid times rather than inventing one", () => {
     expect(utcClock(null)).toBe("—");
     expect(utcClock("not a date")).toBe("—");
+  });
+});
+
+describe("confluence presentation", () => {
+  it("counts observations in plain words and never shows a bracketed number", () => {
+    const { container } = render(<AnalysisView data={response()} error={null} loading={false} />);
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/1 observation/);
+    expect(text).not.toMatch(/\(\d+\)/);
+    expect(text).toMatch(/Nothing is weighted, and the counts are not a rating\./);
   });
 });

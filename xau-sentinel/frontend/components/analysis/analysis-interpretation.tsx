@@ -109,11 +109,17 @@ export function ContextSection({ data }: { data: AnalysisV2Response }) {
   );
 }
 
+/** Plain count of observations. It is never a weight, a score, or a confidence value. */
+function observationCount(n: number): string {
+  return `${n} ${n === 1 ? "observation" : "observations"}`;
+}
+
 function LeanList({ title, items, tone }: { title: string; items: AnalysisV2Lean[]; tone: "bullish" | "bearish" | "neutral" }) {
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {title} <span className="font-mono">({items.length})</span>
+        {title}
+        <span className="ml-1.5 normal-case tracking-normal text-muted-foreground/80">· {observationCount(items.length)}</span>
       </p>
       {items.length === 0 ? (
         <p className="text-xs text-muted-foreground">None.</p>
@@ -140,6 +146,7 @@ export function ConfluenceSection({ data }: { data: AnalysisV2Response }) {
       ) : (
         <div className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">{c.reference_reason}</p>
+          <p className="text-[11px] text-muted-foreground">Each observation is listed with its source. Nothing is weighted, and the counts are not a rating.</p>
           {c.cross_timeframe_conflicts.length > 0 && (
             <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2">
               <p className="text-[10px] uppercase tracking-wide text-warning mb-1">Timeframes disagree</p>
@@ -152,7 +159,7 @@ export function ConfluenceSection({ data }: { data: AnalysisV2Response }) {
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <LeanList
-              title={c.reference ? `Supporting the ${c.reference} reference` : "Supporting evidence"}
+              title={c.reference ? `Supporting the ${c.reference} reference` : "Supporting observations"}
               items={c.supporting}
               tone={c.reference ?? "neutral"}
             />

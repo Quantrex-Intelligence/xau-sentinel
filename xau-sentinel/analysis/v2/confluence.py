@@ -9,7 +9,10 @@ describe how active the market is, but it can never support or oppose a
 direction on its own.
 """
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import List, Optional, Tuple
+
+import pandas as pd
 
 from analysis.v2.context import MarketContext
 from analysis.v2.relations import AreaState
@@ -56,6 +59,46 @@ def _structure_leans(obs) -> List[Lean]:
     return out
 
 
+BREAK_WINDOW = timedelta(minutes=15)  # breaks this close in time can be one structural move
+
+
+def _level_text(a: AreaState) -> str:
+    return f"{a.area.low:.2f}" if a.area.low == a.area.high else f"{a.area.low:.2f}-{a.area.high:.2f}"
+
+
+def _consolidated_breaks(areas: List[AreaState], atr: Optional[float]) -> List[Lean]:
+    """Broken levels that are one structural move become ONE observation. Levels are
+    grouped only when they break in the same direction within BREAK_WINDOW AND sit
+    within one ATR of each other. Anything else stays a separate observation. The
+    level prices are kept in the detail, so no source is lost."""
+    items = []
+    for a in areas:
+        if a.relation != "BROKEN":
+            continue
+        breaks = [e for e in a.events if e.kind == "BREAKOUT"]
+        if breaks:
+            items.append((breaks[-1].direction, pd.Timestamp(breaks[-1].time), a))
+    out: List[Lean] = []
+    used = set()
+    for i, (direction, when, a) in enumerate(items):
+        if i in used:
+            continue
+        group = [i]
+        for j in range(i + 1, len(items)):
+            d2, t2, a2 = items[j]
+            same_move = (d2 == direction and abs(t2 - when) <= BREAK_WINDOW and atr is not None
+                         and abs(a2.area.mid - a.area.mid) <= atr)
+            if same_move:
+                group.append(j)
+        used.update(group)
+        levels = ", ".join(_level_text(items[k][2]) for k in group)
+        verb = "above" if direction == "bullish" else "below"
+        side = "still above" if direction == "bullish" else "still below"
+        out.append(Lean(f"broken levels {levels}", "M5", direction,
+                        f"closed {verb} {levels} within 15 minutes; price is {side} them"))
+    return out
+
+
 def _event_leans(obs, context: MarketContext, events, areas: List[AreaState]) -> List[Lean]:
     out: List[Lean] = []
     sweeps = sorted((e for e in events if e.kind == "SWEEP"), key=lambda e: e.time)
@@ -75,12 +118,9 @@ def _event_leans(obs, context: MarketContext, events, areas: List[AreaState]) ->
         out.append(Lean("price location", "D1", BULLISH, context.price_location.detail))
     elif loc == "BELOW_PREVIOUS_DAY_LOW":
         out.append(Lean("price location", "D1", BEARISH, context.price_location.detail))
+    out.extend(_consolidated_breaks(areas, obs.atr_m5))
     for a in areas:
-        if a.relation == "BROKEN":
-            breaks = [e for e in a.events if e.kind == "BREAKOUT"]
-            lean = breaks[-1].direction if breaks else NEUTRAL
-            out.append(Lean(f"broken area {a.area.low:.2f}-{a.area.high:.2f}", "M5", lean, " ".join(a.reasons)))
-        elif a.relation == "REJECTING":
+        if a.relation == "REJECTING":
             rej = [e for e in a.events if e.kind == "REJECTION"]
             lean = rej[-1].direction if rej else NEUTRAL
             out.append(Lean(f"rejected area {a.area.low:.2f}-{a.area.high:.2f}", "M5", lean, " ".join(a.reasons)))

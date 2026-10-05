@@ -19,10 +19,14 @@ class Evidence:
 
 @dataclass(frozen=True)
 class KeyComponent:
-    """A named contributor to a key area, with its own provenance."""
+    """One logical reference at one price. `evidence` is the primary provenance.
+    `corroborations` holds other records of the SAME level (same timeframe and
+    price) from other sources or with other statuses, such as "broken". They are
+    kept so no provenance is lost, but they are not counted as separate evidence."""
     label: str  # e.g. "PDH", "H1 swing high", "equal highs"
     price: float
     evidence: Evidence
+    corroborations: Tuple[Evidence, ...] = ()
 
 
 @dataclass(frozen=True)

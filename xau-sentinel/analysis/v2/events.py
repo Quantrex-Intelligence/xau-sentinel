@@ -218,3 +218,23 @@ def price_events(candles_closed: dict, obs: Observations) -> List[Event]:
 
 def sort_events(events: List[Event]) -> List[Event]:
     return sorted(events, key=lambda e: (e.time, e.timeframe, e.kind, e.detail))
+
+
+def event_identity(e: Event) -> tuple:
+    """What makes two events the same event: type, timeframe, bar time, direction and
+    level (to the cent). Two records with all of these equal describe one event."""
+    price = None if e.price is None else round(float(e.price), 2)
+    return (e.kind, e.timeframe, pd.Timestamp(e.time), e.direction, price)
+
+
+def dedupe_events(events: List[Event]) -> List[Event]:
+    """Keep the first record of each event identity. Different times, directions or
+    levels are different events and are kept."""
+    seen = set()
+    out: List[Event] = []
+    for e in events:
+        key = event_identity(e)
+        if key not in seen:
+            seen.add(key)
+            out.append(e)
+    return out

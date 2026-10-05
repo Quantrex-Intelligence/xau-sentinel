@@ -18,7 +18,7 @@ from analysis.v2.observations import TIMEFRAMES
 from mt5 import connection, market_data
 
 from api.schemas_analysis_v2 import (
-    AnalysisV2Out, ComponentOut, Confluence, Context, Dimension, EventOut, Facts, Freshness,
+    AnalysisV2Out, ComponentOut, Confluence, CorroborationOut, Context, Dimension, EventOut, Facts, Freshness,
     Interpretation, KeyAreaOut, Lean, Observations, ScenarioOut, Source, SweepOut,
     TimeframeSource, TimeframeStructure, VolumeOut,
 )
@@ -89,9 +89,12 @@ def _key_area(a) -> KeyAreaOut:
         low=float(a.area.low), high=float(a.area.high), side=a.area.side,
         strength_status=a.area.strength_status, strength_reason=a.area.strength_reason,
         relation=a.relation, distance_atr=_f(a.distance_atr), reasons=list(a.reasons),
-        components=[ComponentOut(label=c.label, price=float(c.price), timeframe=c.evidence.timeframe,
-                                 kind=c.evidence.kind, source=c.evidence.source, note=c.evidence.note)
-                    for c in a.area.components],
+        components=[ComponentOut(
+            label=c.label, price=float(c.price), timeframe=c.evidence.timeframe,
+            kind=c.evidence.kind, source=c.evidence.source, note=c.evidence.note,
+            also_recorded_as=[CorroborationOut(timeframe=e.timeframe, kind=e.kind, source=e.source, note=e.note)
+                              for e in c.corroborations],
+        ) for c in a.area.components],
         events=[_event(e) for e in a.events],
     )
 

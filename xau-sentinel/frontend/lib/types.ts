@@ -863,6 +863,13 @@ export interface AnalysisV2Event {
   detail: string;
 }
 
+export interface AnalysisV2Corroboration {
+  timeframe: string;
+  kind: string;
+  source: string;
+  note: string;
+}
+
 export interface AnalysisV2Component {
   label: string;
   price: number;
@@ -870,6 +877,8 @@ export interface AnalysisV2Component {
   kind: string;
   source: string;
   note: string;
+  /** Other records of this same level, kept for provenance. They are not extra evidence. */
+  also_recorded_as: AnalysisV2Corroboration[];
 }
 
 export interface AnalysisV2KeyArea {

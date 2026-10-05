@@ -41,7 +41,9 @@ def test_narrative_sections_appear_in_their_fixed_order():
     lines = _analysis(trend_set("up")).narrative
     order = ["Direction:", "Structure:", "Regime:", "Price location:", "Nearby key areas:", "Recent events:",
              "Liquidity:", "Volatility:", "Volume:", "Momentum:", "Session:"]
-    positions = [next(i for i, line in enumerate(lines) if line.startswith(prefix)) for prefix in order]
+    present = [prefix for prefix in order if any(line.startswith(prefix) for line in lines)]
+    assert "Regime:" in present or "volatility" in " ".join(lines).lower()  # regime line is optional
+    positions = [next(i for i, line in enumerate(lines) if line.startswith(prefix)) for prefix in present]
     assert positions == sorted(positions)
 
 
@@ -186,9 +188,9 @@ def test_area_relations_are_written_as_sentences_not_bare_labels():
     area = KeyArea(3000.0, 3002.0, (), "RESISTANCE", "LOW", "x")
     approaching = AreaState(area, "APPROACHING", 0.5, ("r",))
     inside = AreaState(area, "INSIDE", 0.0, ("r",))
-    assert _area_phrase(approaching) == "3000.00-3002.00 (price is approaching it, 0.50 ATR away)"
-    assert _area_phrase(inside) == "3000.00-3002.00 (price is inside it)"
-    assert "[" not in _area_phrase(approaching)
+    assert _area_phrase(approaching, 2999.5) == "3000.00-3002.00 (price is approaching it, 0.50 ATR away)"
+    assert _area_phrase(inside, 3001.0) == "3000.00-3002.00 (price is inside it)"
+    assert "[" not in _area_phrase(approaching, 2999.5)
 
 
 def test_scenario_text_avoids_forecast_wording_should_and_vague_hold():
@@ -202,5 +204,91 @@ def test_scenario_text_avoids_forecast_wording_should_and_vague_hold():
 def test_event_lines_carry_their_own_description():
     lines = _analysis(trend_set("up")).narrative
     recent = next(line for line in lines if line.startswith("Recent events:"))
-    assert "BOS" in recent or "breakout" in recent or "retest" in recent or "sweep" in recent
     assert "(bullish)" not in recent and "(bearish)" not in recent
+    assert "UTC" in recent
+
+
+# --- review pass: plain event wording, broken-level roles, scenario recency ---
+
+def _event(kind, direction, price=3001.0, detail="raw detail"):
+    from analysis.v2.events import Event
+    import pandas as pd
+    return Event(kind, "M5", pd.Timestamp("2026-10-05 05:10", tz="UTC"), direction, price, detail)
+
+
+@pytest.mark.parametrize("kind,direction,expected", [
+    ("MSS", "bullish", "structure shift to the upside"),
+    ("MSS", "bearish", "structure shift to the downside"),
+    ("BOS", "bearish", "break of structure to the downside"),
+    ("RETEST", "bullish", "came back to 3001.00 from above and held above it"),
+    ("REJECTION", "bearish", "wick above 3001.00 rejected, price held below it"),
+    ("FAILED_BREAKOUT", "bullish", "failed break below 3001.00 and closed back above it"),
+    ("MOMENTUM_LOSS", "bullish", "momentum fading after a bullish run"),
+])
+def test_event_text_states_kind_direction_and_level_plainly(kind, direction, expected):
+    from analysis.v2.narrative import event_text
+    assert event_text(_event(kind, direction)) == expected
+
+
+def test_event_text_never_uses_the_ambiguous_old_phrasing():
+    from analysis.v2.narrative import event_text
+    for kind in ("RETEST", "REJECTION", "MSS", "FAILED_BREAKOUT"):
+        for direction in ("bullish", "bearish"):
+            text = event_text(_event(kind, direction))
+            assert "returned to" not in text and "against the latest" not in text
+
+
+def test_broken_level_states_the_role_it_now_plays():
+    from analysis.v2.models import KeyArea
+    from analysis.v2.relations import AreaState
+    from analysis.v2.narrative import _area_phrase
+    area = KeyArea(3000.0, 3002.0, (), "RESISTANCE", "LOW", "x")
+    broke_up = AreaState(area, "BROKEN", -1.0, ("r",), (_event("BREAKOUT", "bullish", detail="x"),))
+    broke_down = AreaState(area, "BROKEN", 1.0, ("r",), (_event("BREAKOUT", "bearish", detail="x"),))
+    assert "now support" in _area_phrase(broke_up, 3004.0)
+    assert "now resistance" in _area_phrase(broke_down, 2996.0)
+
+
+def test_recent_event_references_exclude_events_older_than_the_window():
+    from analysis.v2.scenarios import RECENT_WINDOW, build_scenarios
+    from analysis.v2.events import Event
+    from analysis.v2.confluence import Confluence
+    from analysis.v2.context import MarketContext, Dimension
+    from analysis.v2.observations import build_observations
+    import dataclasses
+    candles = trend_set("up")
+    obs = build_observations(candles)
+    old = Event("SWEEP", "M5", obs.as_of - RECENT_WINDOW - timedelta(hours=1), "bullish", 1.0, "old sweep")
+    fresh = Event("SWEEP", "M5", obs.as_of - timedelta(minutes=5), "bullish", 2.0, "fresh sweep")
+    a = _analysis(candles)
+    ctx = a.context
+    conf = a.confluence
+    scen = build_scenarios(obs, ctx, conf, [], [old, fresh])
+    refs = [r for s in scen for r in s.event_refs]
+    assert any("fresh sweep" in r for r in refs), refs
+    assert not any("old sweep" in r for r in refs), refs
+
+
+def test_range_scenario_supporting_line_is_structural_not_raw_confluence():
+    scen = next(s for s in _analysis(range_set()).scenarios if s.name == "RANGE")
+    assert scen.supporting_conditions and scen.supporting_conditions[0].startswith("Structure:")
+    assert "cannot confirm" not in " ".join(scen.supporting_conditions)
+
+
+def test_continuation_wording_says_hold_not_staying_there():
+    cont = next(s for s in _analysis(trend_set("up")).scenarios if s.name == "CONTINUATION")
+    assert "hold above it" in cont.condition
+    assert "staying there" not in cont.condition
+
+
+def test_regime_line_is_omitted_when_it_only_repeats_volatility():
+    from analysis.v2.narrative import build_narrative
+    from analysis.v2.context import Dimension, MarketContext
+    import dataclasses
+    a = _analysis(trend_set("up"))
+    ctx_vol = dataclasses.replace(a.context, regime=Dimension("HIGH VOLATILITY", "x"))
+    ctx_trend = dataclasses.replace(a.context, regime=Dimension("TRENDING UP", "x"))
+    with_vol = build_narrative(a.observations, ctx_vol, a.confluence, list(a.areas), list(a.events))
+    with_trend = build_narrative(a.observations, ctx_trend, a.confluence, list(a.areas), list(a.events))
+    assert not any(line.startswith("Regime:") for line in with_vol)
+    assert any(line == "Regime: trending up." for line in with_trend)

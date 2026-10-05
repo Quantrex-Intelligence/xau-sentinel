@@ -12,6 +12,7 @@ Strength is evidence-based, never a score:
     LOW       1 reference kind
 Every area carries the reason it received its status.
 """
+from dataclasses import replace
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -78,7 +79,7 @@ def _components(m5: pd.DataFrame, h1: pd.DataFrame, h4: pd.DataFrame) -> List[Ke
                       note=e.label)
         comps.append(KeyComponent(label=e.label, price=e.level_price, evidence=ev))
     comps.extend(_extra_components(m5, h1, h4))
-    return comps
+    return _consolidate(comps)
 
 
 # Extra key-area sources (Analysis Engine V2, increment 4). Each one is a
@@ -92,6 +93,41 @@ PSYCH_STEP = 10.0  # round-number grid; only used when justified by repeated tou
 PSYCH_TOUCH_ATR = 0.25  # an H1 bar "touches" a round level within this many H1 ATR
 PSYCH_MIN_TOUCHES = 2  # round level must be touched this often to be a reference
 PSYCH_NEAR_ATR = 1.0  # and sit within this many M5 ATR of the current price
+
+
+# Kinds that describe the SAME underlying swing. A structure swing, its zone
+# twin, and the "broken" status of that swing are one level, not three references.
+_LEVEL_FAMILY = {
+    "H1_SWING_HIGH": "H1_SWING_HIGH", "H1_BROKEN_HIGH": "H1_SWING_HIGH",
+    "H1_SWING_LOW": "H1_SWING_LOW", "H1_BROKEN_LOW": "H1_SWING_LOW",
+    "H4_SWING_HIGH": "H4_SWING_HIGH", "H4_SWING_LOW": "H4_SWING_LOW",
+}
+
+
+def _consolidate(comps: List[KeyComponent]) -> List[KeyComponent]:
+    """One logical component per (timeframe, level family, price). Only records of the
+    same swing at the same price merge. Different prices, timeframes, or independent
+    kinds (PDH, session extremes, VWAP, zones) are never merged. Every merged source
+    is kept in `corroborations`, so provenance survives."""
+    groups: Dict[tuple, List[KeyComponent]] = {}
+    order: List[tuple] = []
+    for idx, c in enumerate(comps):
+        family = _LEVEL_FAMILY.get(c.evidence.kind)
+        key = (c.evidence.timeframe, family, round(c.price, 2)) if family else ("single", idx)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(c)
+
+    out: List[KeyComponent] = []
+    for key in order:
+        members = groups[key]
+        # Prefer the plain reference over the "broken" status as the primary record.
+        members = sorted(members, key=lambda m: ("BROKEN" in m.evidence.kind, ))
+        primary = members[0]
+        extra = tuple(m.evidence for m in members[1:]) + tuple(e for m in members for e in m.corroborations)
+        out.append(replace(primary, corroborations=extra) if extra else primary)
+    return out
 
 
 def _extra_components(m5: pd.DataFrame, h1: pd.DataFrame, h4: pd.DataFrame) -> list:
@@ -185,7 +221,8 @@ def _extra_components(m5: pd.DataFrame, h1: pd.DataFrame, h4: pd.DataFrame) -> l
     if h1 is not None and len(h1) and atr_h1_now > 0:
         now = pd.Timestamp(m5["time"].iloc[-1])
         monday = (now - pd.Timedelta(days=now.weekday())).normalize()
-        if pd.Timestamp(h1["time"].iloc[0]) <= monday:
+        # On Monday the week-to-date range IS today's range, so it adds no independent evidence.
+        if now.weekday() != 0 and pd.Timestamp(h1["time"].iloc[0]) <= monday:
             week = h1[h1["time"] >= monday]
             if len(week):
                 add("Week high", float(week["high"].max()), "H1", "WEEK_HIGH", ("week-to-date"))
