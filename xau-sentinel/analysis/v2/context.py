@@ -10,6 +10,7 @@ from typing import Dict, Optional
 
 import config
 from analysis.regime import classify_regime
+from analysis.v2.adx import trend_strength_state
 from analysis.v2.events import Event
 from analysis.v2.observations import Observations
 
@@ -40,6 +41,7 @@ class MarketContext:
     momentum: Dimension
     session: Dimension
     price_location: Dimension
+    trend_strength: Dimension  # ADX band on H1; how strong, never which way
 
 
 def _trend_from_state(state: str, last_mss: Optional[str]) -> tuple:
@@ -185,4 +187,7 @@ def build_context(obs: Observations, closed: dict, events) -> MarketContext:
         momentum=_momentum(closed.get("M5"), events),
         session=Dimension(obs.session or "UNKNOWN", "Session from the configured UTC windows."),
         price_location=_price_location(obs),
+        trend_strength=Dimension(trend_strength_state(obs.adx_h1),
+                                 f"Wilder ADX with a 14-bar period on H1 is {obs.adx_h1:.1f}." if obs.adx_h1 is not None
+                                 else "Not enough H1 history for ADX."),
     )

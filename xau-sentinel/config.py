@@ -47,6 +47,10 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 # --- Analysis thresholds (configurable, kept deliberately simple) ---
 SWING_LOOKBACK = int(os.getenv("SWING_LOOKBACK", 3))
 DISPLACEMENT_ATR_MULT = float(os.getenv("DISPLACEMENT_ATR_MULT", 1.5))
+# NOTE (unit inconsistency, documented not changed): this buffer is added to raw price levels, so 0.5 means
+# 0.5 price units (USD on XAUUSD), not pips and not ATR. The break buffer (BREAK_BUFFER_ATR) and the retest
+# tolerance (RETEST_TOUCH_ATR) are ATR-scaled, so the sweep buffer's share of a bar changes with volatility.
+# Kept as is until it is validated against MT5 data; see docs/analysis-v2-validation.md.
 LIQUIDITY_SWEEP_BUFFER_PIPS = float(os.getenv("LIQUIDITY_SWEEP_BUFFER_PIPS", 0.5))
 EQUAL_LEVEL_TOLERANCE = float(os.getenv("EQUAL_LEVEL_TOLERANCE", 0.5))
 ATR_PERIOD = int(os.getenv("ATR_PERIOD", 14))
@@ -276,3 +280,10 @@ FUNDEDNEXT_MCP_URL = os.getenv("FUNDEDNEXT_MCP_URL", "https://mcp.fundednext.com
 FUNDEDNEXT_MCP_TOKEN = os.getenv("FUNDEDNEXT_MCP_TOKEN", "").strip()
 FUNDEDNEXT_MCP_TIMEOUT_SECONDS = float(os.getenv("FUNDEDNEXT_MCP_TIMEOUT_SECONDS", 15.0))
 FUNDEDNEXT_MCP_CACHE_TTL_SECONDS = int(os.getenv("FUNDEDNEXT_MCP_CACHE_TTL_SECONDS", 60))
+
+
+# --- Entry Model V1 (manual decision support, see analysis/entry_model/) ---
+# Independent of the A+ sweep window above. A+ never reads this, and this module never reads
+# AI_STRATEGY_SWEEP_WINDOW_MINUTES. The setup timeframe is M15, so 8 bars is about 2 hours. This is a
+# starting value for research, not a claim that 8 is optimal — see docs/entry-model-v1-plan.md.
+ENTRY_MODEL_SWEEP_MAX_BARS = int(os.getenv("ENTRY_MODEL_SWEEP_MAX_BARS", 8))

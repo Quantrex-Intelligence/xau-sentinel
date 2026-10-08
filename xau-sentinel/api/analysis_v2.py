@@ -17,7 +17,9 @@ from analysis.v2.engine import AnalysisV2, build_analysis
 from analysis.v2.observations import TIMEFRAMES
 from mt5 import connection, market_data
 
+from analysis.v2.sequence import sequence_wording
 from api.schemas_analysis_v2 import (
+    SequenceOut, SequenceStepOut,
     AnalysisV2Out, ComponentOut, Confluence, CorroborationOut, Context, Dimension, EventOut, Facts, Freshness,
     Interpretation, KeyAreaOut, Lean, Observations, ScenarioOut, Source, SweepOut,
     TimeframeSource, TimeframeStructure, VolumeOut,
@@ -55,7 +57,8 @@ def _sweep(e) -> SweepOut:
 
 def _event(e) -> EventOut:
     return EventOut(kind=e.kind, timeframe=e.timeframe, time_utc=_iso(e.time), direction=e.direction,
-                    price=_f(e.price), detail=e.detail)
+                    price=_f(e.price), detail=e.detail,
+                    levels=[float(x) for x in e.levels], superseded=bool(e.superseded))
 
 
 def _structure(s) -> TimeframeStructure:
@@ -72,6 +75,7 @@ def _observations(obs) -> Observations:
         current_price=_f(obs.current_price), atr_m5=_f(obs.atr_m5), atr_h1=_f(obs.atr_h1),
         atr_percentile_m5=_f(obs.atr_percentile_m5), atr_change_m5=_f(obs.atr_change_m5),
         range_ratio_m5=_f(obs.range_ratio_m5), displacement_m5=obs.displacement_m5,
+        adx_h1=_f(obs.adx_h1),
         volume_m5=VolumeOut(relative_volume=_f(vol.get("relative_volume")),
                             volume_percentile=_f(vol.get("volume_percentile")),
                             state=vol.get("state", "UNKNOWN")),
@@ -117,7 +121,23 @@ def _context(ctx) -> Context:
         direction=_dim(ctx.direction), structure={k: _dim(v) for k, v in ctx.structure.items()},
         regime=_dim(ctx.regime), volatility=_dim(ctx.volatility), volume=_dim(ctx.volume),
         liquidity=_dim(ctx.liquidity), momentum=_dim(ctx.momentum), session=_dim(ctx.session),
-        price_location=_dim(ctx.price_location),
+        price_location=_dim(ctx.price_location), trend_strength=_dim(ctx.trend_strength),
+    )
+
+
+def _sequence(seq) -> SequenceOut:
+    return SequenceOut(
+        direction=seq.direction, stage=seq.stage, is_complete=seq.is_complete, invalidated=seq.invalidated,
+        invalidation_reason=seq.invalidation_reason, next_step=seq.next_step,
+        sweep_depth_atr=_f(seq.sweep_depth_atr), bars_since_sweep=seq.bars_since_sweep,
+        bars_sweep_to_shift=seq.bars_sweep_to_shift,
+        superseded_by_utc=_iso(seq.superseded_by), chronology_ok=seq.chronology_ok,
+        ordering=seq.ordering, mss_owner_time_utc=_iso(seq.mss_owner_time),
+        sweep_time_utc=_iso(seq.sweep.time), sweep_level_name=seq.sweep.level_name,
+        sweep_level_price=_f(seq.sweep.level_price),
+        steps=[SequenceStepOut(name=st.name, status=st.status, bar_time_utc=_iso(st.bar_time),
+                               level=_f(st.level), detail=st.detail) for st in seq.steps],
+        wording=sequence_wording(seq),
     )
 
 
@@ -128,6 +148,7 @@ def _scenario(s) -> ScenarioOut:
         confirmation_requirements=list(s.confirmation_requirements),
         invalidation_conditions=list(s.invalidation_conditions),
         key_area_refs=list(s.key_area_refs), event_refs=list(s.event_refs), disclaimer=s.disclaimer,
+        state=s.state, invalidated_reason=s.invalidated_reason,
     )
 
 
@@ -223,9 +244,11 @@ def build_payload(now: Optional[datetime] = None, candles: Optional[dict] = None
         events=[_event(e) for e in analysis.events],
         interpretation=Interpretation(
             context=_context(analysis.context) if analysis.context else None,
-            key_areas=[_key_area(a) for a in analysis.areas],
+            key_areas=[_key_area(a) for a in analysis.active_areas],
+            distant_key_area_count=analysis.distant_area_count,
             confluence=_confluence(analysis.confluence) if analysis.confluence else None,
             narrative=list(analysis.narrative),
+            sequences=[_sequence(s) for s in analysis.sequences],
         ),
         scenarios=[_scenario(s) for s in analysis.scenarios],
     )

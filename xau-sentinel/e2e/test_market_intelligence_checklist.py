@@ -83,7 +83,8 @@ def main() -> int:
         check("UI: no probability/win-forecast language anywhere on the page",
               "probability" not in body_text.lower())
 
-        page.goto(f"{BASE}/setups", wait_until="networkidle", timeout=30000)
+        page.goto(f"{BASE}/market", wait_until="networkidle", timeout=30000)
+        page.get_by_role("button", name="A+ evidence and AI explanation").first.click(timeout=15000)
         try:
             page.get_by_text("A+ Strategy Evaluation", exact=False).wait_for(state="visible", timeout=15000)
             setups_page_loaded = True
@@ -104,7 +105,7 @@ def main() -> int:
                 mi_panel_toggle_present = True
             except Exception:
                 mi_panel_toggle_present = False
-        check("UI: Setups page is not cluttered with the Market Intelligence panel",
+        check("UI: Market page is not cluttered with the Market Intelligence panel",
               setups_page_loaded and not mi_panel_toggle_present)
 
         check("UI: no browser console errors", len(console_errors) == 0 and len(page_errors) == 0,

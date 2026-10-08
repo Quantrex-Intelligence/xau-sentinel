@@ -16,9 +16,12 @@ const TIMEFRAME_LABELS: Record<Timeframe, string> = {
 };
 
 const OVERLAY_LABELS: { key: keyof ChartOverlayToggles; label: string }[] = [
-  { key: "zones", label: "Zones" },
+  { key: "zones", label: "Levels" },
   { key: "liquidity", label: "Liquidity" },
-  { key: "setup", label: "Setup" },
+  { key: "structure", label: "Structure" },
+  { key: "areas", label: "Key areas" },
+  { key: "setup", label: "A+ lines" },
+  { key: "ict", label: "ICT (LuxAlgo)" },
 ];
 
 export function ChartControls({

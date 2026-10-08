@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 BASE = "http://localhost:3000"
 API_BASE = "http://127.0.0.1:8000"
-FORBIDDEN = re.compile(r"probab|confiden|\bBUY\b|\bSELL\b|win rate|\bscore\b", re.IGNORECASE)
+FORBIDDEN = re.compile(r"probab|confiden|\bBUY\b(?!-side)|\bSELL\b(?!-side)|win rate|\bscore\b", re.IGNORECASE)
 results: list[tuple[str, bool, str]] = []
 
 
@@ -59,12 +59,13 @@ def main() -> int:
         page.on("pageerror", lambda exc: page_errors.append(str(exc)))
         page.on("requestfailed", lambda req: failed_requests.append(f"{req.method} {req.url}"))
 
-        page.goto(f"{BASE}/analysis", wait_until="networkidle", timeout=30000)
+        page.goto(f"{BASE}/market", wait_until="networkidle", timeout=30000)
+        page.get_by_role("button", name="Full V2 analysis").first.click(timeout=15000)
         try:
-            page.get_by_role("heading", name="Market analysis", exact=True).wait_for(state="visible", timeout=15000)
-            check("UI: Analysis page loads", True)
+            page.get_by_role("heading", name="Market overview").wait_for(state="visible", timeout=15000)
+            check("UI: the full V2 analysis opens from the Market page", True)
         except Exception:
-            check("UI: Analysis page loads", False)
+            check("UI: the full V2 analysis opens from the Market page", False)
 
         for heading in ("Market overview", "Multi-timeframe structure", "Key areas", "Recent events",
                         "Market context", "Confluence and contradictions", "Narrative", "Conditional scenarios"):
@@ -82,11 +83,13 @@ def main() -> int:
               "Source:" in body_text and "Last closed M5" in body_text)
         check("UI: the view is read-only (its footnote says so, or marks mock data)",
               "Read-only" in body_text or "Synthetic test data" in body_text)
-        check("UI: no probability, confidence, score or trade call on the page",
-              not FORBIDDEN.search(body_text))
+        # Scoped to the V2 analysis view: the A+ card on the same page shows its direction and levels by design.
+        v2_text = page.get_by_test_id("full-v2-analysis").inner_text()
+        check("UI: no probability, confidence, score or trade call in the V2 analysis",
+              not FORBIDDEN.search(v2_text))
 
-        page.get_by_role("link", name="Analysis", exact=True).first.wait_for(state="visible", timeout=5000)
-        check("UI: the sidebar links to the Analysis page", True)
+        page.get_by_role("link", name="Market", exact=True).first.wait_for(state="visible", timeout=5000)
+        check("UI: the sidebar links to the unified Market page", True)
 
         check("UI: no browser console errors", len(console_errors) == 0 and len(page_errors) == 0,
               str(console_errors + page_errors))

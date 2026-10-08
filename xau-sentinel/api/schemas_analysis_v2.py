@@ -81,6 +81,7 @@ class Observations(BaseModel):
     session: Optional[str] = None
     zones: Dict[str, float]
     zone_distances_atr: Dict[str, float]
+    adx_h1: Optional[float] = None  # trend strength only, no direction
     recent_high: Optional[float] = None
     recent_low: Optional[float] = None
     sweeps: List[SweepOut]
@@ -94,6 +95,10 @@ class EventOut(BaseModel):
     direction: Optional[str] = None
     price: Optional[float] = None
     detail: str
+    # Every level a collapsed event was recorded at (one entry for a plain event).
+    levels: List[float] = Field(default_factory=list)
+    # True for an area event replaced by a later opposite event on the same area. Shown only as evidence.
+    superseded: bool = False
 
 
 class CorroborationOut(BaseModel):
@@ -155,6 +160,7 @@ class Context(BaseModel):
     momentum: Dimension
     session: Dimension
     price_location: Dimension
+    trend_strength: Dimension
 
 
 class ScenarioOut(BaseModel):
@@ -167,6 +173,8 @@ class ScenarioOut(BaseModel):
     key_area_refs: List[str]
     event_refs: List[str]
     disclaimer: str
+    state: str = "ACTIVE"  # ACTIVE | INVALIDATED (invalidation already met by the last closed M5 close)
+    invalidated_reason: str = ""
 
 
 class Facts(BaseModel):
@@ -174,11 +182,44 @@ class Facts(BaseModel):
     structure: Dict[str, TimeframeStructure] = Field(default_factory=dict)
 
 
+class SequenceStepOut(BaseModel):
+    name: str  # SWEEP | STRUCTURE_SHIFT | DISPLACEMENT | RETRACEMENT
+    status: str  # CONFIRMED | WAITING | INVALIDATED | NOT_REACHED
+    bar_time_utc: Optional[str] = None
+    level: Optional[float] = None
+    detail: str
+
+
+class SequenceOut(BaseModel):
+    direction: str  # bullish | bearish
+    stage: str  # last confirmed step, or INVALIDATED
+    is_complete: bool
+    invalidated: bool
+    invalidation_reason: str
+    next_step: Optional[str] = None
+    superseded_by_utc: Optional[str] = None
+    sweep_depth_atr: Optional[float] = None
+    bars_since_sweep: Optional[int] = None
+    bars_sweep_to_shift: Optional[int] = None
+    chronology_ok: bool
+    # MSS_FIRST | DISPLACEMENT_FIRST | SIMULTANEOUS once both have happened; None otherwise.
+    ordering: Optional[str] = None
+    # Set when a later sweep owns this sequence's structure shift; this sweep then does not confirm it.
+    mss_owner_time_utc: Optional[str] = None
+    sweep_time_utc: Optional[str] = None
+    sweep_level_name: str
+    sweep_level_price: Optional[float] = None
+    steps: List[SequenceStepOut]
+    wording: Dict[str, str]  # observed | sequence | conditional, factual only
+
+
 class Interpretation(BaseModel):
     context: Optional[Context] = None
-    key_areas: List[KeyAreaOut] = Field(default_factory=list)
+    key_areas: List[KeyAreaOut] = Field(default_factory=list)  # active areas only, within ACTIVE_AREA_ATR of price
+    distant_key_area_count: int = 0  # areas further from price than ACTIVE_AREA_ATR; counted, not listed
     confluence: Optional[Confluence] = None
     narrative: List[str] = Field(default_factory=list)
+    sequences: List[SequenceOut] = Field(default_factory=list)
 
 
 class AnalysisV2Out(BaseModel):

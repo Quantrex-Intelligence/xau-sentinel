@@ -241,6 +241,18 @@ def _extra_components(m5: pd.DataFrame, h1: pd.DataFrame, h4: pd.DataFrame) -> l
             if touches >= PSYCH_MIN_TOUCHES:
                 add(f"Round level {level:.0f}", level, "H1", "PSYCH_LEVEL", f"{touches} H1 touches in 50 bars")
 
+    # TESTED ZONES: clusters of H1 swing pivots that were touched at least ZONE_MIN_TOUCHES times.
+    # Each zone contributes its two edges. The clustering width and touch minimum are imported
+    # heuristics (analysis/v2/heuristics.py), not validated values.
+    if h1 is not None and atr_h1_now > 0:
+        from analysis.v2.tested_zones import build_tested_zones
+        for zone in build_tested_zones(h1, atr_h1_now):
+            label = "Tested support" if zone.kind == "SUPPORT" else "Tested resistance"
+            kind = "TESTED_SUPPORT" if zone.kind == "SUPPORT" else "TESTED_RESISTANCE"
+            note = f"{zone.touch_count} H1 pivots tested this zone"
+            add(f"{label} low", zone.low, "H1", kind, note)
+            add(f"{label} high", zone.high, "H1", kind, note)
+
     return comps
 
 

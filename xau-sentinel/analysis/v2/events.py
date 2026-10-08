@@ -9,8 +9,8 @@ logic is never copied or changed here.
 Every event is tied to one closed bar (`time`, the bar's UTC open time), so
 recency is always explicit and an old state cannot be reported as new.
 """
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, replace
+from typing import List, Optional, Sequence, Tuple
 
 import pandas as pd
 
@@ -33,6 +33,12 @@ class Event:
     direction: Optional[str]  # "bullish" | "bearish" | None
     price: Optional[float]
     detail: str
+    # Every level this event was recorded at. One entry for a plain event; several when the same
+    # bar, kind and direction were recorded at nearby areas and collapsed into one (see collapse_area_events).
+    levels: Tuple[float, ...] = ()
+    # True when a later event on the same area with the opposite direction replaced this one as the
+    # current state. The record is kept on the area for evidence, but it is left out of the active stream.
+    superseded: bool = False
 
 
 def _bar_time(df: pd.DataFrame, i: int) -> pd.Timestamp:
@@ -203,9 +209,24 @@ def structure_events(candles_closed: dict) -> List[Event]:
     return events
 
 
+def fvg_events(m5: Optional[pd.DataFrame]) -> List[Event]:
+    """Fair value gaps as events at their formation bar. The retest/fill status is in the detail.
+    FILLED gaps are no longer active, so they are not emitted as events; OPEN and RETESTED ones are."""
+    from analysis.v2.fvg import FILLED, find_fvgs
+    out: List[Event] = []
+    for g in find_fvgs(m5):
+        if g.status == FILLED:
+            continue
+        size = f", {g.size_atr:.2f} ATR wide" if g.size_atr is not None else ""
+        out.append(Event("FVG", "M5", g.formed_at, g.direction, g.mid,
+                         f"{g.direction} fair value gap {g.low:.2f}-{g.high:.2f}{size}; {g.status.lower()}"))
+    return out
+
+
 def price_events(candles_closed: dict, obs: Observations) -> List[Event]:
     m5 = candles_closed.get("M5")
     events: List[Event] = []
+    events += fvg_events(m5)
     events += sweep_events(obs)
     events += displacement_events(m5)
     events += volatility_events(m5)
@@ -225,6 +246,40 @@ def event_identity(e: Event) -> tuple:
     level (to the cent). Two records with all of these equal describe one event."""
     price = None if e.price is None else round(float(e.price), 2)
     return (e.kind, e.timeframe, pd.Timestamp(e.time), e.direction, price)
+
+
+AREA_EVENT_KINDS = ("BREAKOUT", "RETEST", "FAILED_BREAKOUT", "REJECTION")
+
+
+def collapse_area_events(events: Sequence[Event], price: Optional[float]) -> List[Event]:
+    """One event per bar, kind and direction for area events. The same bar can break or reject
+    several nearby areas, and those areas differ only by a point or two, so they describe one
+    market move. The representative is the record nearest the current price (ties keep the first
+    record), and every level is kept in `levels` and listed in the detail. Other events pass through
+    unchanged, in their original order."""
+    groups: dict = {}
+    order: List[tuple] = []
+    passthrough: List[Event] = []
+    for e in events:
+        if e.kind not in AREA_EVENT_KINDS:
+            passthrough.append(e)
+            continue
+        key = (e.kind, e.timeframe, pd.Timestamp(e.time), e.direction)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(e)
+
+    out: List[Event] = list(passthrough)
+    for key in order:
+        members = groups[key]
+        rep = min(members, key=lambda m: abs(float(m.price) - price) if price is not None and m.price is not None
+                  else 0.0)
+        levels = tuple(sorted({round(float(m.price), 2) for m in members if m.price is not None}))
+        others = [f"{lvl:.2f}" for lvl in levels if rep.price is None or round(float(rep.price), 2) != lvl]
+        detail = rep.detail + (f"; also at {', '.join(others)}" if others else "")
+        out.append(replace(rep, detail=detail, levels=levels))
+    return sorted(out, key=lambda e: (e.time, e.kind, e.direction or ""))
 
 
 def dedupe_events(events: List[Event]) -> List[Event]:

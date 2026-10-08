@@ -146,6 +146,9 @@ export const api = {
 
   strategyAPlus: () => request<StrategyEvaluation>("/api/strategy/aplus"),
   analysisV2: () => request<AnalysisV2Response>("/api/analysis/v2"),
+  entryModel: () => request<import("./types").EntryModelResult>("/api/entry-model"),
+  luxalgoIct: (timeframe: string, count = 300) =>
+    request<import("./types").LuxalgoIctOverlay>(`/api/tools/luxalgo-ict?timeframe=${timeframe}&count=${count}`),
 
   similarityCurrent: () => request<SimilarityResult>("/api/similarity/current"),
   similarityForTrade: (tradeId: number) => request<SimilarityResult>(`/api/similarity/trade/${tradeId}`),

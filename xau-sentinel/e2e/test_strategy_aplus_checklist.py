@@ -55,8 +55,10 @@ def main() -> int:
         page.on("pageerror", lambda exc: page_errors.append(str(exc)))
         page.on("requestfailed", lambda req: failed_requests.append(f"{req.method} {req.url}"))
 
-        page.goto(f"{BASE}/setups", wait_until="networkidle", timeout=30000)
-        check("UI: Setups page loads", wait_for(page, "Summary"))
+        page.goto(f"{BASE}/market", wait_until="networkidle", timeout=30000)
+        check("UI: Market page loads with the snapshot", wait_for(page, "H1 bias"))
+        check("UI: A+ setup card renders", wait_for(page, "A+ setup"))
+        page.get_by_role("button", name="A+ evidence and AI explanation").first.click(timeout=15000)
         check("UI: A+ Strategy Evaluation panel renders", wait_for(page, "A+ Strategy Evaluation"))
         check("UI: a rating is shown (A+ / DEVELOPING / INVALID)",
               any(wait_for(page, r, timeout=5000) for r in ("A+", "DEVELOPING", "INVALID")))

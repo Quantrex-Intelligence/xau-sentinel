@@ -44,6 +44,7 @@ function response(overrides: Partial<AnalysisV2Response> = {}): AnalysisV2Respon
         atr_h1: 9.1,
         atr_percentile_m5: 40,
         atr_change_m5: 0.9,
+        adx_h1: 24.5,
         range_ratio_m5: 1.1,
         displacement_m5: null,
         volume_m5: { relative_volume: 0.66, volume_percentile: 30, state: "CONTRACTION" },
@@ -73,6 +74,7 @@ function response(overrides: Partial<AnalysisV2Response> = {}): AnalysisV2Respon
       },
     ],
     interpretation: {
+      sequences: [],
       context: {
         direction: { state: "NONE", detail: "H1 and H4 are ranging." },
         structure: {},
@@ -83,6 +85,7 @@ function response(overrides: Partial<AnalysisV2Response> = {}): AnalysisV2Respon
         momentum: { state: "STEADY", detail: "Recent bodies similar." },
         session: { state: "New York", detail: "Configured UTC window." },
         price_location: { state: "MIDDLE_THIRD", detail: "Price at 40% of the day range." },
+        trend_strength: { state: "DEVELOPING_TREND", detail: "Wilder ADX with a 14-bar period on H1 is 24.5." },
       },
       key_areas: [
         {
@@ -182,7 +185,7 @@ describe("AnalysisView", () => {
       status: "UNAVAILABLE",
       status_reason: "MT5 data is unavailable: MT5 not connected",
       facts: { observations: null, structure: {} },
-      interpretation: { context: null, key_areas: [], confluence: null, narrative: [] },
+      interpretation: { context: null, key_areas: [], confluence: null, narrative: [], sequences: [] },
       events: [],
       scenarios: [],
     });
@@ -254,5 +257,59 @@ describe("confluence presentation", () => {
     expect(text).toMatch(/1 observation/);
     expect(text).not.toMatch(/\(\d+\)/);
     expect(text).toMatch(/Nothing is weighted, and the counts are not a rating\./);
+  });
+});
+
+describe("sequences panel", () => {
+  const sequence = {
+    direction: "bullish" as const,
+    stage: "DISPLACEMENT",
+    is_complete: false,
+    invalidated: false,
+    invalidation_reason: "",
+    next_step: "RETRACEMENT",
+    superseded_by_utc: null,
+    chronology_ok: true,
+    sweep_time_utc: "2026-10-05T09:50:00+00:00",
+    sweep_level_name: "Previous Day Low",
+    sweep_level_price: 4125.1,
+    sweep_depth_atr: 0.2,
+    bars_since_sweep: 4,
+    bars_sweep_to_shift: 0,
+    steps: [
+      { name: "SWEEP" as const, status: "CONFIRMED" as const, bar_time_utc: "2026-10-05T09:50:00+00:00", level: null, detail: "swept" },
+      { name: "STRUCTURE_SHIFT" as const, status: "CONFIRMED" as const, bar_time_utc: "2026-10-05T09:55:00+00:00", level: 4130.2, detail: "closed above" },
+      { name: "DISPLACEMENT" as const, status: "CONFIRMED" as const, bar_time_utc: "2026-10-05T09:55:00+00:00", level: null, detail: "candle" },
+      { name: "RETRACEMENT" as const, status: "WAITING" as const, bar_time_utc: null, level: null, detail: "not yet" },
+    ],
+    wording: {
+      observed: "Sell-side liquidity was swept.",
+      sequence: "Sweep → structure shift → displacement.",
+      conditional: "Retracement has not yet been confirmed.",
+      evidence: "Sweep pierced the level by 0.20 ATR; 4 closed bars since the sweep.",
+    },
+  };
+
+  it("shows the observed fact, the confirmed sequence and the conditional line", () => {
+    const data = response();
+    data.interpretation.sequences = [sequence];
+    render(<AnalysisView data={data} error={null} loading={false} />);
+    expect(screen.getByText("Sell-side liquidity was swept.")).toBeInTheDocument();
+    expect(screen.getByText("Sweep → structure shift → displacement.")).toBeInTheDocument();
+    expect(screen.getByText("Retracement has not yet been confirmed.")).toBeInTheDocument();
+    expect(screen.getByText(/Retracement · waiting/)).toBeInTheDocument();
+  });
+
+  it("says plainly when no sweep has started a sequence", () => {
+    render(<AnalysisView data={response()} error={null} loading={false} />);
+    expect(screen.getByText("No sweep has started a sequence in the recent closed bars.")).toBeInTheDocument();
+  });
+
+  it("uses no trade language in the sequence text", () => {
+    const data = response();
+    data.interpretation.sequences = [sequence];
+    const { container } = render(<AnalysisView data={data} error={null} loading={false} />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/\b(buy now|sell now|enter|target price|probab|confiden)\b/i);
   });
 });

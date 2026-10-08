@@ -1,0 +1,164 @@
+Dataset: 6 months 2026-04-06 16:50:00+00:00 .. 2026-10-02 20:55:00+00:00 (M5, 35496 bars)
+IS: bars 300..23382   OOS: bars 23382..35496 (last 60 days)
+Label: +/-1.0 ATR(14) within 48 M5 bars; win rate = wins/(wins+losses)
+
+== IN-SAMPLE: bars 300..23382  baseline win rate 0.497 (95% CI 0.492..0.501, n=46144)
+                     group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+                 BOS (all) 748      748         0     0.499     0.463      0.534         0.002
+         BOS (non-overlap) 367      367         0     0.474     0.424      0.525        -0.023
+                 MSS (all) 600      600         0     0.497     0.457      0.537        -0.000
+         MSS (non-overlap) 391      391         0     0.488     0.439      0.538        -0.008
+               SWEEP (all) 872      872         0     0.487     0.454      0.521        -0.009
+       SWEEP (non-overlap) 444      444         0     0.466     0.420      0.513        -0.031
+        DISPLACEMENT (all) 812      812         0     0.522     0.488      0.556         0.025
+DISPLACEMENT (non-overlap) 443      443         0     0.528     0.482      0.574         0.031
+         SETUP_VALID (all)  20       20         0     0.650     0.433      0.819         0.153
+ SETUP_VALID (non-overlap)  13       13         0     0.538     0.291      0.768         0.042
+
+== OUT-OF-SAMPLE: bars 23382..35496  baseline win rate 0.496 (95% CI 0.489..0.502, n=24212)
+                     group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+                 BOS (all) 405      404         1     0.510     0.461      0.558         0.014
+         BOS (non-overlap) 202      201         1     0.547     0.478      0.615         0.052
+                 MSS (all) 330      330         0     0.497     0.443      0.551         0.001
+         MSS (non-overlap) 205      205         0     0.478     0.411      0.546        -0.018
+               SWEEP (all) 515      514         1     0.471     0.428      0.514        -0.025
+       SWEEP (non-overlap) 243      242         1     0.442     0.381      0.505        -0.053
+        DISPLACEMENT (all) 405      405         0     0.484     0.436      0.533        -0.012
+DISPLACEMENT (non-overlap) 220      220         0     0.495     0.430      0.561        -0.000
+         SETUP_VALID (all)   7        7         0     0.286     0.082      0.641        -0.210
+ SETUP_VALID (non-overlap)   4        4         0     0.500     0.150      0.850         0.004
+
+== STABILITY (non-overlapping signals, IS vs OOS)
+BOS: UNSTABLE (flips between IS and OOS, noise)  (IS 0.474, OOS 0.547)
+MSS: insufficient data  (IS nan, OOS nan)
+SWEEP: insufficient data  (IS nan, OOS nan)
+DISPLACEMENT: insufficient data  (IS nan, OOS nan)
+SETUP_VALID: insufficient data  (IS nan, OOS nan)
+
+Full-period baseline win rate 0.496 (n=70356)
+
+== BOS: breakdowns over 6 months, non-overlapping (n=568)
+  group  n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+2026-04 73       73         0     0.507     0.395      0.618         0.010
+2026-05 99       99         0     0.475     0.379      0.572        -0.022
+2026-06 95       95         0     0.537     0.437      0.634         0.040
+2026-07 96       96         0     0.385     0.294      0.485        -0.111
+2026-08 94       94         0     0.543     0.442      0.640         0.046
+2026-09 99       99         0     0.566     0.467      0.659         0.069
+2026-10 12       11         1     0.364     0.152      0.646        -0.133
+group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+  BUY 273      273         0     0.513     0.454      0.572         0.016
+ SELL 295      294         1     0.486     0.430      0.543        -0.010
+ group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+ ASIAN 182      182         0     0.500     0.428      0.572         0.004
+LONDON 123      123         0     0.528     0.441      0.614         0.032
+    NY 198      198         0     0.485     0.416      0.554        -0.012
+   OFF  65       64         1     0.484     0.366      0.604        -0.012
+          group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+       BREAKOUT  89       89         0     0.506     0.404      0.607         0.009
+HIGH VOLATILITY  90       90         0     0.411     0.315      0.514        -0.085
+ LOW VOLATILITY 107      106         1     0.443     0.352      0.538        -0.053
+       PULLBACK  38       38         0     0.500     0.348      0.652         0.004
+        RANGING 124      124         0     0.589     0.501      0.671         0.092
+  TRENDING DOWN  71       71         0     0.563     0.448      0.673         0.067
+    TRENDING UP  49       49         0     0.449     0.319      0.587        -0.047
+
+== MSS: breakdowns over 6 months, non-overlapping (n=596)
+  group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+2026-04  85       85         0     0.529     0.424      0.632         0.033
+2026-05 105      105         0     0.514     0.420      0.608         0.018
+2026-06  97       97         0     0.485     0.388      0.583        -0.012
+2026-07  98       98         0     0.408     0.316      0.507        -0.088
+2026-08  99       99         0     0.535     0.438      0.630         0.039
+2026-09 102      102         0     0.422     0.330      0.519        -0.075
+2026-10  10       10         0     0.700     0.397      0.892         0.204
+group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+  BUY 305      305         0     0.452     0.398      0.509        -0.044
+ SELL 291      291         0     0.519     0.462      0.576         0.023
+ group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+ ASIAN 181      181         0     0.459     0.388      0.531        -0.038
+LONDON 127      127         0     0.520     0.433      0.605         0.023
+    NY 217      217         0     0.516     0.450      0.582         0.020
+   OFF  71       71         0     0.394     0.289      0.511        -0.102
+          group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+       BREAKOUT  71       71         0     0.394     0.289      0.511        -0.102
+HIGH VOLATILITY  79       79         0     0.532     0.423      0.638         0.035
+ LOW VOLATILITY 108      108         0     0.463     0.372      0.557        -0.033
+       PULLBACK  61       61         0     0.525     0.402      0.645         0.028
+        RANGING 129      129         0     0.488     0.404      0.574        -0.008
+  TRENDING DOWN  75       75         0     0.507     0.396      0.617         0.010
+    TRENDING UP  73       73         0     0.493     0.382      0.605        -0.003
+
+== SWEEP: breakdowns over 6 months, non-overlapping (n=687)
+  group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+2026-04  85       85         0     0.424     0.324      0.530        -0.073
+2026-05 115      115         0     0.565     0.474      0.652         0.069
+2026-06 119      119         0     0.403     0.320      0.493        -0.093
+2026-07 121      121         0     0.463     0.376      0.551        -0.034
+2026-08 109      109         0     0.431     0.342      0.525        -0.065
+2026-09 125      125         0     0.432     0.348      0.520        -0.064
+2026-10  13       12         1     0.667     0.391      0.862         0.170
+group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+  BUY 352      351         1     0.444     0.393      0.497        -0.052
+ SELL 335      335         0     0.472     0.419      0.525        -0.025
+ group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+ ASIAN 263      263         0     0.468     0.408      0.528        -0.029
+LONDON 194      194         0     0.443     0.375      0.514        -0.053
+    NY 188      188         0     0.447     0.378      0.518        -0.050
+   OFF  42       41         1     0.512     0.365      0.657         0.016
+          group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+       BREAKOUT  72       72         0     0.458     0.348      0.573        -0.038
+HIGH VOLATILITY  75       75         0     0.480     0.371      0.591        -0.016
+ LOW VOLATILITY 160      159         1     0.465     0.390      0.543        -0.031
+       PULLBACK  42       42         0     0.310     0.191      0.460        -0.187
+        RANGING 162      162         0     0.438     0.364      0.515        -0.058
+  TRENDING DOWN 102      102         0     0.529     0.433      0.623         0.033
+    TRENDING UP  74       74         0     0.446     0.338      0.559        -0.050
+
+== DISPLACEMENT: breakdowns over 6 months, non-overlapping (n=663)
+  group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+2026-04  89       89         0     0.584     0.480      0.681         0.088
+2026-05 116      116         0     0.474     0.386      0.564        -0.022
+2026-06 113      113         0     0.602     0.510      0.687         0.105
+2026-07 121      121         0     0.471     0.384      0.560        -0.025
+2026-08 100      100         0     0.520     0.423      0.615         0.024
+2026-09 114      114         0     0.500     0.410      0.590         0.004
+2026-10  10       10         0     0.200     0.057      0.510        -0.296
+group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+  BUY 333      333         0     0.535     0.481      0.587         0.038
+ SELL 330      330         0     0.500     0.446      0.554         0.004
+ group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+ ASIAN 227      227         0     0.529     0.464      0.593         0.032
+LONDON 126      126         0     0.500     0.414      0.586         0.004
+    NY 216      216         0     0.523     0.457      0.589         0.027
+   OFF  94       94         0     0.500     0.401      0.599         0.004
+          group   n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+       BREAKOUT  75       75         0     0.533     0.422      0.642         0.037
+HIGH VOLATILITY  63       63         0     0.444     0.328      0.567        -0.052
+ LOW VOLATILITY 160      160         0     0.487     0.411      0.564        -0.009
+       PULLBACK  38       38         0     0.500     0.348      0.652         0.004
+        RANGING 162      162         0     0.531     0.454      0.606         0.034
+  TRENDING DOWN  78       78         0     0.577     0.466      0.680         0.081
+    TRENDING UP  87       87         0     0.540     0.436      0.641         0.044
+
+== SETUP_VALID: breakdowns over 6 months, non-overlapping (n=17)
+  group  n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+2026-04  5        5         0       0.4     0.118      0.769        -0.096
+2026-05  1        1         0       1.0     0.207      1.000         0.504
+2026-06  2        2         0       0.0     0.000      0.658        -0.496
+2026-07  5        5         0       0.8     0.376      0.964         0.304
+2026-08  2        2         0       0.5     0.095      0.905         0.004
+2026-09  2        2         0       0.5     0.095      0.905         0.004
+group  n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+  BUY  7        7         0     0.429     0.158      0.750        -0.068
+ SELL 10       10         0     0.600     0.313      0.832         0.104
+ group  n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+ ASIAN  7        7         0     0.429     0.158      0.750        -0.068
+LONDON  5        5         0     0.600     0.231      0.882         0.104
+    NY  5        5         0     0.600     0.231      0.882         0.104
+          group  n  decided  timeouts  win_rate  ci95_low  ci95_high  lift_vs_base
+       BREAKOUT  2        2         0     0.500     0.095      0.905         0.004
+HIGH VOLATILITY  6        6         0     0.500     0.188      0.812         0.004
+       PULLBACK  4        4         0     0.750     0.301      0.954         0.254
+  TRENDING DOWN  2        2         0     0.500     0.095      0.905         0.004
+    TRENDING UP  3        3         0     0.333     0.061      0.792        -0.163

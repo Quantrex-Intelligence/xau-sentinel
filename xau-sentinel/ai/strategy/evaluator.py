@@ -27,6 +27,7 @@ the already-decided `result`, never the LLM, and `rating`/
 `deterministic_rating` are always the same value copied from `result.rating`
 — evaluate_deterministic() itself remains completely untouched.
 """
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -50,6 +51,7 @@ from ai.prompts import (
 )
 from ai.strategy import evidence as evidence_builder
 from ai.strategy import rules
+from ai.strategy.facts import StrategyFacts
 from ai.strategy.evidence import ContextualEvidence
 from ai.strategy.schemas import (
     ContextualAnalysisOut, Criterion, CriterionStatus, FundedNextGateOut, Rating, StrategyEvaluationOut,
@@ -103,6 +105,27 @@ def _sweep_time_iso(event) -> Optional[str]:
     return ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
 
 
+def collect_legacy_facts(candles: dict, now: datetime) -> StrategyFacts:
+    """Computes the A+ facts from raw candles, exactly as the evaluator always has.
+    Structural confirmation reads only CLOSED candles (Stage 21, VAL-006);
+    current_price is the one deliberate exception, reading the unfiltered
+    set's last close for entry-price context."""
+    closed = closed_only(candles)
+    zones = compute_zones(closed["M5"], closed["H1"], closed["H4"])
+    return StrategyFacts(
+        h4=analyze_structure(closed["H4"]),
+        h1=analyze_structure(closed["H1"]),
+        m15=analyze_structure(closed["M15"]),
+        m5=analyze_structure(closed["M5"]),
+        zones=zones,
+        sweeps=detect_sweeps(closed["M5"], zones),
+        equal_levels=detect_equal_levels(closed["M5"]),
+        m5_closed=closed["M5"],
+        current_price=float(candles["M5"]["close"].iloc[-1]),
+        data_stale=is_feed_stale(candles["M5"], now),
+    )
+
+
 def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
                             now: Optional[datetime] = None) -> StrategyEvaluationOut:
     """`candles` is a dict of timeframe -> DataFrame for M5/M15/H1/H4, same
@@ -110,20 +133,17 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
     side-effect-free — no DB writes, no LLM call, no live I/O — so it can be
     tested with synthetic candles exactly like tests/test_setup.py does."""
     now = now or datetime.now(timezone.utc)
+    return decide_from_facts(collect_legacy_facts(candles, now), fundednext_status, now)
 
-    # Structural confirmation reads only CLOSED candles (Stage 21,
-    # VAL-006); current_price is the one deliberate exception, reading
-    # the unfiltered set's last close for entry-price context.
-    closed = closed_only(candles)
-    h4 = analyze_structure(closed["H4"])
-    h1 = analyze_structure(closed["H1"])
-    m15 = analyze_structure(closed["M15"])
-    m5 = analyze_structure(closed["M5"])
-    zones = compute_zones(closed["M5"], closed["H1"], closed["H4"])
-    sweeps = detect_sweeps(closed["M5"], zones)
-    equal_levels = detect_equal_levels(closed["M5"])
-    current_price = float(candles["M5"]["close"].iloc[-1])
-    data_stale = is_feed_stale(candles["M5"], now)
+
+def decide_from_facts(facts: StrategyFacts, fundednext_status: FundedNextStatus,
+                      now: datetime) -> StrategyEvaluationOut:
+    """The A+ decision. Reads only `facts`, so the same rules run unchanged on
+    legacy facts or on facts mapped from Analysis Engine V2."""
+    h4, h1, m15, m5 = facts.h4, facts.h1, facts.m15, facts.m5
+    zones, sweeps, equal_levels = facts.zones, facts.sweeps, facts.equal_levels
+    closed_m5 = facts.m5_closed
+    current_price, data_stale = facts.current_price, facts.data_stale
 
     fn_gate_ok, fn_reason = rules.check_fundednext_gate(fundednext_status)
     fundednext_out = _fundednext_gate_out(fundednext_status, fn_gate_ok, fn_reason)
@@ -154,7 +174,13 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
 
     # The M5 steps are located bar by bar from the sweep, in order
     # (Stage 23A, VAL-008/009/018 — analysis/sequence.py).
-    seq = evaluate_sequence(closed["M5"], candidate, direction)
+    seq = facts.sequence if facts.sequence is not None else evaluate_sequence(closed_m5, candidate, direction)
+    if facts.sequence is not None and not facts.sequence_chronology_ok:
+        # V2 found the chronology invalid: a counted step before its sweep, or a retracement not after
+        # both the structure shift and the displacement. Both valid orders (MSS first, or displacement
+        # first) pass the flag. An invalid chronology is not confirmed evidence, so the MSS, displacement
+        # and retracement read as not reached. An opposing-break invalidation (seq.invalidated) is still honoured.
+        seq = replace(seq, mss_index=None, displacement_index=None, retracement_ok=False, retrace_pct=None)
 
     if rules.is_opposing_mss_invalidated(seq):
         return StrategyEvaluationOut(
@@ -183,7 +209,7 @@ def evaluate_deterministic(candles: dict, fundednext_status: FundedNextStatus,
     mss_ok = rules.is_m5_mss_confirmed(seq)
     displacement_ok = rules.is_displacement_confirmed(seq)
     retracement_ok = seq.retracement_ok
-    m5_times = closed["M5"]["time"]
+    m5_times = closed_m5["time"]
 
     entry = round(current_price, 2)
     stop_loss = rules.compute_stop_loss(direction, candidate.level_price)

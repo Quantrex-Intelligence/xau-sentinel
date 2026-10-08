@@ -10,18 +10,25 @@ from fastapi import APIRouter, HTTPException
 from journal import trades as trades_repo
 from mt5 import market_data
 
+from typing import Literal
+
 from ai.strategy.evaluator import evaluate_current_setup
+from ai.v2_strategy.primary import V2UnavailableError, evaluate_current_setup_primary
 from ai.strategy.schemas import Rating, StrategyEvaluationOut
 
 router = APIRouter(prefix="/api/strategy", tags=["strategy"])
 
 
 @router.get("/aplus", response_model=StrategyEvaluationOut)
-def get_aplus_evaluation():
+def get_aplus_evaluation(source: Literal["v2", "legacy"] = "v2"):
+    """Primary source is Analysis V2. `source=legacy` runs the original calculation for
+    regression comparison only; it is never used automatically when V2 cannot evaluate."""
     try:
-        result = evaluate_current_setup()
+        result = evaluate_current_setup() if source == "legacy" else evaluate_current_setup_primary()
     except market_data.MarketDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+    except V2UnavailableError as exc:
+        raise HTTPException(status_code=503, detail=f"V2 analysis unavailable: {exc}")
 
     if result.rating == Rating.A_PLUS and result.candidate_sweep_time:
         dedup_key = f"{result.direction}:{result.candidate_sweep_time}"

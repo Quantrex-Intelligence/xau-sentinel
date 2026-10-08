@@ -32,7 +32,7 @@ const LEAN_VARIANT: Record<AnalysisV2Lean["lean"], "bullish" | "bearish" | "seco
   neutral: "secondary",
 };
 
-export function KeyAreasSection({ areas, price }: { areas: AnalysisV2KeyArea[]; price: number | null }) {
+export function KeyAreasSection({ areas, price, distantCount = 0 }: { areas: AnalysisV2KeyArea[]; price: number | null; distantCount?: number }) {
   // Nearest first, by distance in ATR. Areas without a measurable distance go last.
   const sorted = [...areas].sort((a, b) => Math.abs(a.distance_atr ?? 1e9) - Math.abs(b.distance_atr ?? 1e9));
   return (
@@ -65,6 +65,9 @@ export function KeyAreasSection({ areas, price }: { areas: AnalysisV2KeyArea[]; 
           ))}
         </ul>
       )}
+      {distantCount > 0 && (
+        <p className="mt-2 text-[11px] text-muted-foreground">{distantCount} more areas are further than the active distance from price and are not listed.</p>
+      )}
       {price !== null && (
         <p className="mt-2 text-[11px] text-muted-foreground">Distances are measured from the last closed M5 price {formatPrice(price)}.</p>
       )}
@@ -90,6 +93,7 @@ export function ContextSection({ data }: { data: AnalysisV2Response }) {
     ["Momentum", ctx.momentum],
     ["Session", ctx.session],
     ["Price location", ctx.price_location],
+    ["Trend strength", ctx.trend_strength],
   ];
   return (
     <Panel title="Market context" action={<KindTag kind="interpreted" />}>

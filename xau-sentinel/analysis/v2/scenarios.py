@@ -5,7 +5,7 @@ would invalidate it, using the structure levels and areas already measured.
 These are conditions, not predictions and not trade instructions. None of them
 carries a probability, and none tells anyone to enter, exit or size anything.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import List, Optional, Tuple
 
@@ -33,6 +33,27 @@ class Scenario:
     key_area_refs: Tuple[str, ...]
     event_refs: Tuple[str, ...]
     disclaimer: str = DISCLAIMER
+    # Structured invalidation: (side, level) pairs meaning "the last closed M5 close is above/below level".
+    invalidation_checks: Tuple[Tuple[str, float], ...] = ()
+    # ACTIVE while no invalidation check is met by the last closed close. INVALIDATED otherwise, and the
+    # reason says which level was crossed. An INVALIDATED scenario is kept so the state is explicit.
+    state: str = "ACTIVE"
+    invalidated_reason: str = ""
+
+
+def _finalize(s: Scenario, last_close: Optional[float]) -> Scenario:
+    """Marks the scenario INVALIDATED when its invalidation is already satisfied by the last closed
+    M5 close. The forming bar is never used here: a condition that has already happened on a closed
+    bar is not a live scenario."""
+    if last_close is None:
+        return s
+    for side, level in s.invalidation_checks:
+        crossed = last_close > level if side == "above" else last_close < level
+        if crossed:
+            return replace(s, state="INVALIDATED",
+                           invalidated_reason=f"M5 closed {side} {level:.2f} (last closed close "
+                                              f"{last_close:.2f}), so this scenario's invalidation has already occurred.")
+    return s
 
 
 def _nearest(areas: List[AreaState], price: float, above: bool) -> Optional[AreaState]:
@@ -58,7 +79,7 @@ def _sup(confluence: Confluence, direction: str) -> Tuple[str, ...]:
 
 
 def build_scenarios(obs: Observations, context: MarketContext, confluence: Confluence,
-                    areas: List[AreaState], events) -> Tuple[Scenario, ...]:
+                    areas: List[AreaState], events, last_close: Optional[float] = None) -> Tuple[Scenario, ...]:
     price = obs.current_price
     if price is None:
         return ()
@@ -96,14 +117,20 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
                        if h1.last_high is not None else "M5 closes above its latest swing high",
                        "H1 structure turns BULLISH"]
             condition = "Continuation needs M5 to close below the latest H1 swing low and hold below it."
-        scenarios.append(Scenario(
+        cont_checks = []
+        if up and h1.last_low is not None:
+            cont_checks.append(("below", h1.last_low))
+        if not up and h1.last_high is not None:
+            cont_checks.append(("above", h1.last_high))
+        scenarios.append(_finalize(Scenario(
             name=name, direction=ref, condition=condition,
             supporting_conditions=_sup(confluence, ref),
             confirmation_requirements=(level_text,),
             invalidation_conditions=tuple(invalid),
             key_area_refs=(_area_label(target),) if target else (),
             event_refs=refs(ref_kinds_continuation),
-        ))
+            invalidation_checks=tuple(cont_checks),
+        ), last_close))
 
         opposite = "bearish" if up else "bullish"
         m5_level = m5.last_low if up else m5.last_high
@@ -112,7 +139,7 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
             confirm = (f"M5 closes {'below' if up else 'above'} {m5_level:.2f} (latest M5 swing "
                        f"{'low' if up else 'high'}), a structure shift (MSS) against the {ref} trend, "
                        f"followed by a {opposite} displacement bar")
-            scenarios.append(Scenario(
+            scenarios.append(_finalize(Scenario(
                 name="REVERSAL", direction=opposite,
                 condition=f"A reversal would start with a {opposite} structure shift on M5 against the {ref} trend.",
                 supporting_conditions=_sup(confluence, opposite),
@@ -121,7 +148,8 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
                                          f"(latest M5 swing {'high' if up else 'low'}), which would undo the shift",),
                 key_area_refs=tuple(_area_label(a) for a in areas if a.relation in ("REJECTING", "BROKEN"))[:2],
                 event_refs=refs(ref_kinds_reversal),
-            ))
+                invalidation_checks=(("above" if up else "below", m5_invalid),),
+            ), last_close))
 
     else:
         # Range edges: confirmed H1 swings, then M5 swings, then the plain recent
@@ -129,7 +157,7 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
         rng_hi = next((x for x in (h1.last_high, m5.last_high, obs.recent_high) if x is not None), None)
         rng_lo = next((x for x in (h1.last_low, m5.last_low, obs.recent_low) if x is not None), None)
         if rng_hi is not None and rng_lo is not None and rng_hi > rng_lo:
-            scenarios.append(Scenario(
+            scenarios.append(_finalize(Scenario(
                 name="RANGE", direction=None,
                 condition=f"While price stays within {rng_lo:.2f}-{rng_hi:.2f}, the market is treated as two-sided. "
                           f"A directional read needs one edge to break with follow-through.",
@@ -140,5 +168,6 @@ def build_scenarios(obs: Observations, context: MarketContext, confluence: Confl
                                          f"which would end the range read",),
                 key_area_refs=tuple(_area_label(a) for a in areas if a.relation in ("INSIDE", "APPROACHING"))[:3],
                 event_refs=refs(ref_kinds_range),
-            ))
+                invalidation_checks=(("above", rng_hi), ("below", rng_lo)),
+            ), last_close))
     return tuple(scenarios)

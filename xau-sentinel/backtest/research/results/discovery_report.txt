@@ -1,0 +1,87 @@
+Rows: 35196  discovery (300, 17000)  validation (17000, 23382)  test (23382, 1000000000)
+Hypotheses tested (fixed list): 74  Bonferroni z = 3.4
+Baseline discovery: {'buy_mean_atr': -0.5179, 'buy_win_rate': 0.474, 'sell_win_rate': 0.52, 'n': 16700}
+Baseline validation: {'buy_mean_atr': -0.1433, 'buy_win_rate': 0.471, 'sell_win_rate': 0.522, 'n': 6382}
+
+== Discovery + validation, all hypotheses (ranked by discovery t)
+                                hypothesis            family direction  disc_n  disc_t  disc_mean_atr  val_n  val_t  val_mean_atr  passes_discovery  passes_validation  z_threshold
+                  ASIAN & sweep_low -> BUY         D_session       BUY    1865  -10.70        -1.0039    626  -4.02       -0.5454              True               True          3.4
+        H1dir-1 & sweep_low_recent -> SELL A_structure_event      SELL    2657    9.15         0.8491    755  -3.87       -0.7844              True              False          3.4
+         H1dir-1 & sweep_low_recent -> BUY A_structure_event       BUY    2657   -9.15        -0.8491    755   3.87        0.7844              True              False          3.4
+                           near PDL -> BUY        B_location       BUY     222   -8.14        -2.7400     60   0.85        0.5501              True              False          3.4
+                          near PDL -> SELL        B_location      SELL     222    8.14         2.7400     60  -0.85       -0.5501              True              False          3.4
+    sweep_low & near f_dist_pdl_atr -> BUY  C_sweep_location       BUY     205   -7.37        -2.2763     59   1.06        0.6847              True              False          3.4
+                 near H1 swing low -> SELL        B_location      SELL     261    5.84         1.6472    143   0.10        0.0352              True              False          3.4
+                  near H1 swing low -> BUY        B_location       BUY     261   -5.84        -1.6472    143  -0.10       -0.0352              True              False          3.4
+                     NY & sweep_low -> BUY         D_session       BUY    1846   -5.58        -0.5751    587  10.72        1.7698              True              False          3.4
+             TRENDING UP & H1dir+1 -> SELL          E_regime      SELL    1995    5.00         0.6431    726  -6.51       -1.3368              True              False          3.4
+              TRENDING UP & H1dir+1 -> BUY          E_regime       BUY    1995   -5.00        -0.6431    726   6.51        1.3368              True              False          3.4
+                 LONDON & sweep_low -> BUY         D_session       BUY    1894   -4.74        -0.6009    672  -3.83       -0.9605              True               True          3.4
+  sweep_low & near f_dist_h1_sl_atr -> BUY  C_sweep_location       BUY     238   -4.68        -1.1343    129   0.43        0.1549              True              False          3.4
+                    OFF & sweep_low -> BUY         D_session       BUY     658   -4.20        -0.9457    197   0.44        0.1657              True              False          3.4
+                ASIAN & sweep_high -> SELL         D_session      SELL    1381    3.76         0.4102    501   3.71        0.7480              True               True          3.4
+sweep_high & near f_dist_h1_sh_atr -> SELL  C_sweep_location      SELL     242   -3.62        -1.0716     86  -0.22       -0.1219              True              False          3.4
+               LONDON & sweep_high -> SELL         D_session      SELL    1404   -3.28        -0.4691    445   1.18        0.3089             False              False          3.4
+                near H1 swing high -> SELL        B_location      SELL     255   -2.73        -0.8249     90  -0.30       -0.1573             False              False          3.4
+                 near H1 swing high -> BUY        B_location       BUY     255    2.73         0.8249     90   0.30        0.1573             False              False          3.4
+        H1dir+1 & sweep_high_recent -> BUY A_structure_event       BUY    1434    2.49         0.3844    686   6.41        1.5111             False              False          3.4
+       H1dir+1 & sweep_high_recent -> SELL A_structure_event      SELL    1434   -2.49        -0.3844    686  -6.41       -1.5111             False              False          3.4
+            TRENDING DOWN & H1dir-1 -> BUY          E_regime       BUY    2412    2.32         0.2617    684   3.70        0.8989             False              False          3.4
+           TRENDING DOWN & H1dir-1 -> SELL          E_regime      SELL    2412   -2.32        -0.2617    684  -3.70       -0.8989             False              False          3.4
+       H1dir-1 & sweep_high_recent -> SELL A_structure_event      SELL    1057   -2.04        -0.3220    434   4.27        0.8322             False              False          3.4
+        H1dir-1 & sweep_high_recent -> BUY A_structure_event       BUY    1057    2.04         0.3220    434  -4.27       -0.8322             False              False          3.4
+             H1dir-1 & mss_M5_bull -> SELL A_structure_event      SELL      67    2.03         1.2620     23  -1.81       -1.5774             False              False          3.4
+              H1dir-1 & mss_M5_bull -> BUY A_structure_event       BUY      67   -2.03        -1.2620     23   1.81        1.5774             False              False          3.4
+              H1dir+1 & mss_M5_bull -> BUY A_structure_event       BUY      44    1.85         2.5498     19   0.73        0.9902             False              False          3.4
+             H1dir+1 & mss_M5_bull -> SELL A_structure_event      SELL      44   -1.85        -2.5498     19  -0.73       -0.9902             False              False          3.4
+          HIGH VOLATILITY & H1dir+1 -> BUY          E_regime       BUY     429   -1.62        -0.2765    189   3.98        0.9485             False              False          3.4
+         HIGH VOLATILITY & H1dir+1 -> SELL          E_regime      SELL     429    1.62         0.2765    189  -3.98       -0.9485             False              False          3.4
+                   NY & sweep_high -> SELL         D_session      SELL    1509    1.58         0.2476    663  -2.78       -0.4176             False              False          3.4
+  sweep_low & near f_dist_h4_sl_atr -> BUY  C_sweep_location       BUY     191   -1.56        -0.6890     37   3.62        3.6149             False              False          3.4
+sweep_high & near f_dist_h4_sh_atr -> SELL  C_sweep_location      SELL      54   -1.56        -1.0916     31   1.43        1.0649             False              False          3.4
+                 near H4 swing low -> SELL        B_location      SELL     199    1.48         0.6363     42  -3.80       -3.4116             False              False          3.4
+                  near H4 swing low -> BUY        B_location       BUY     199   -1.48        -0.6363     42   3.80        3.4116             False              False          3.4
+             H1dir+1 & mss_M5_bear -> SELL A_structure_event      SELL      56    1.30         1.1275     24   0.48        0.4683             False              False          3.4
+              H1dir+1 & mss_M5_bear -> BUY A_structure_event       BUY      56   -1.30        -1.1275     24  -0.48       -0.4683             False              False          3.4
+                 near H4 swing high -> BUY        B_location       BUY      58    1.26         0.9014     34  -1.43       -0.9717             False              False          3.4
+                near H4 swing high -> SELL        B_location      SELL      58   -1.26        -0.9014     34   1.43        0.9717             False              False          3.4
+               H1dir-1 & disp_bull -> SELL A_structure_event      SELL     101    1.14         0.6296     36  -0.02       -0.0228             False              False          3.4
+                H1dir-1 & disp_bull -> BUY A_structure_event       BUY     101   -1.14        -0.6296     36   0.02        0.0228             False              False          3.4
+             H1dir-1 & bos_M5_bear -> SELL A_structure_event      SELL      86    1.14         0.7026     39  -0.89       -0.7246             False              False          3.4
+              H1dir-1 & bos_M5_bear -> BUY A_structure_event       BUY      86   -1.14        -0.7026     39   0.89        0.7246             False              False          3.4
+         HIGH VOLATILITY & H1dir-1 -> SELL          E_regime      SELL     732   -1.09        -0.2334    375   0.87        0.1351             False              False          3.4
+          HIGH VOLATILITY & H1dir-1 -> BUY          E_regime       BUY     732    1.09         0.2334    375  -0.87       -0.1351             False              False          3.4
+                  OFF & sweep_high -> SELL         D_session      SELL     409    0.91         0.3208    242  -0.91       -0.6351             False              False          3.4
+  sweep_high & near f_dist_pdh_atr -> SELL  C_sweep_location      SELL      85   -0.81        -0.4841     62   2.89        1.2493             False              False          3.4
+                           near PDH -> BUY        B_location       BUY      92    0.73         0.4162     70  -3.13       -1.2521             False              False          3.4
+                          near PDH -> SELL        B_location      SELL      92   -0.73        -0.4162     70   3.13        1.2521             False              False          3.4
+               H1dir+1 & disp_bull -> SELL A_structure_event      SELL      78   -0.71        -0.4899     30  -1.83       -1.8021             False              False          3.4
+                H1dir+1 & disp_bull -> BUY A_structure_event       BUY      78    0.71         0.4899     30   1.83        1.8021             False              False          3.4
+              H1dir+1 & bos_M5_bear -> BUY A_structure_event       BUY      65    0.63         0.5781     15   0.64        1.7939             False              False          3.4
+             H1dir+1 & bos_M5_bear -> SELL A_structure_event      SELL      65   -0.63        -0.5781     15  -0.64       -1.7939             False              False          3.4
+             H1dir-1 & bos_M5_bull -> SELL A_structure_event      SELL      64   -0.55        -0.3996     31   2.06        1.5652             False              False          3.4
+              H1dir-1 & bos_M5_bull -> BUY A_structure_event       BUY      64    0.55         0.3996     31  -2.06       -1.5652             False              False          3.4
+                H1dir-1 & disp_bear -> BUY A_structure_event       BUY     102   -0.48        -0.3032     28   1.11        0.9564             False              False          3.4
+               H1dir-1 & disp_bear -> SELL A_structure_event      SELL     102    0.48         0.3032     28  -1.11       -0.9564             False              False          3.4
+             H1dir+1 & bos_M5_bull -> SELL A_structure_event      SELL      56   -0.41        -0.3477     24  -2.20       -2.5586             False              False          3.4
+              H1dir+1 & bos_M5_bull -> BUY A_structure_event       BUY      56    0.41         0.3477     24   2.20        2.5586             False              False          3.4
+        H1dir+1 & sweep_low_recent -> SELL A_structure_event      SELL     950    0.40         0.0587    289   2.78        0.4952             False              False          3.4
+         H1dir+1 & sweep_low_recent -> BUY A_structure_event       BUY     950   -0.40        -0.0587    289  -2.78       -0.4952             False              False          3.4
+               H1dir+1 & disp_bear -> SELL A_structure_event      SELL      61   -0.13        -0.0834     24   0.28        0.3334             False              False          3.4
+                H1dir+1 & disp_bear -> BUY A_structure_event       BUY      61    0.13         0.0834     24  -0.28       -0.3334             False              False          3.4
+             H1dir-1 & mss_M5_bear -> SELL A_structure_event      SELL      67    0.06         0.0413     17   0.02        0.0172             False              False          3.4
+              H1dir-1 & mss_M5_bear -> BUY A_structure_event       BUY      67   -0.06        -0.0413     17  -0.02       -0.0172             False              False          3.4
+              TRENDING UP & H1dir-1 -> BUY          E_regime       BUY       0     NaN            NaN      0    NaN           NaN             False              False          3.4
+             TRENDING UP & H1dir-1 -> SELL          E_regime      SELL       0     NaN            NaN      0    NaN           NaN             False              False          3.4
+            TRENDING DOWN & H1dir+1 -> BUY          E_regime       BUY       0     NaN            NaN      0    NaN           NaN             False              False          3.4
+           TRENDING DOWN & H1dir+1 -> SELL          E_regime      SELL       0     NaN            NaN      0    NaN           NaN             False              False          3.4
+                  RANGING & H1dir+1 -> BUY          E_regime       BUY       0     NaN            NaN      0    NaN           NaN             False              False          3.4
+                 RANGING & H1dir+1 -> SELL          E_regime      SELL       0     NaN            NaN      0    NaN           NaN             False              False          3.4
+                  RANGING & H1dir-1 -> BUY          E_regime       BUY       0     NaN            NaN      0    NaN           NaN             False              False          3.4
+                 RANGING & H1dir-1 -> SELL          E_regime      SELL       0     NaN            NaN      0    NaN           NaN             False              False          3.4
+
+== Candidates passing discovery AND validation: 3
+                hypothesis direction    n  mean_ret_atr     t  win_rate  expectancy_pm1  mfe_atr  mae_atr
+  ASIAN & sweep_low -> BUY       BUY 1148       -0.2666 -1.94     0.438          -0.124    3.365    3.642
+ASIAN & sweep_high -> SELL      SELL 1233       -0.3295 -2.12     0.538           0.075    3.563    3.898
+ LONDON & sweep_low -> BUY       BUY 1173        0.9629  5.78     0.472          -0.055    4.893    4.563

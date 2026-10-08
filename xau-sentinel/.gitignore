@@ -13,3 +13,11 @@ data/fundednext_day_state.json
 .pytest_tmp/
 
 .DS_Store
+
+# Backtest cache (real MT5 history, regenerable)
+backtest/data/
+# Research feature dataset (regenerable)
+backtest/research/data/
+# Entry Model V2 OOS fresh-data cache (real MT5 history acquired after the frozen IS boundary,
+# regenerable via research/entry_model_v2_oos/data_acquisition.py)
+research/entry_model_v2_oos/fresh_data/

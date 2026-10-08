@@ -844,6 +844,7 @@ export interface AnalysisV2Observations {
   atr_change_m5: number | null;
   range_ratio_m5: number | null;
   displacement_m5: string | null;
+  adx_h1: number | null;
   volume_m5: { relative_volume: number | null; volume_percentile: number | null; state: string };
   session: string | null;
   zones: Record<string, number>;
@@ -861,6 +862,8 @@ export interface AnalysisV2Event {
   direction: string | null;
   price: number | null;
   detail: string;
+  levels?: number[]; // every level a collapsed event was recorded at
+  superseded?: boolean; // true when a later opposite event on the same area replaced it (evidence only)
 }
 
 export interface AnalysisV2Corroboration {
@@ -922,6 +925,7 @@ export interface AnalysisV2Context {
   momentum: AnalysisV2Dimension;
   session: AnalysisV2Dimension;
   price_location: AnalysisV2Dimension;
+  trend_strength: AnalysisV2Dimension;
 }
 
 export interface AnalysisV2Scenario {
@@ -934,6 +938,37 @@ export interface AnalysisV2Scenario {
   key_area_refs: string[];
   event_refs: string[];
   disclaimer: string;
+  state?: "ACTIVE" | "INVALIDATED"; // INVALIDATED when the last closed M5 close already met the invalidation
+  invalidated_reason?: string;
+}
+
+export interface AnalysisV2SequenceStep {
+  name: "SWEEP" | "STRUCTURE_SHIFT" | "DISPLACEMENT" | "RETRACEMENT";
+  status: "CONFIRMED" | "WAITING" | "INVALIDATED" | "NOT_REACHED";
+  bar_time_utc: string | null;
+  level: number | null;
+  detail: string;
+}
+
+export interface AnalysisV2Sequence {
+  direction: "bullish" | "bearish";
+  stage: string;
+  is_complete: boolean;
+  invalidated: boolean;
+  invalidation_reason: string;
+  next_step: string | null;
+  superseded_by_utc: string | null;
+  chronology_ok: boolean;
+  ordering?: "MSS_FIRST" | "DISPLACEMENT_FIRST" | "SIMULTANEOUS" | null; // actual order once both have happened
+  mss_owner_time_utc?: string | null; // set when a later sweep owns this sequence's structure shift
+  sweep_time_utc: string | null;
+  sweep_level_name: string;
+  sweep_level_price: number | null;
+  sweep_depth_atr: number | null;
+  bars_since_sweep: number | null;
+  bars_sweep_to_shift: number | null;
+  steps: AnalysisV2SequenceStep[];
+  wording: { observed: string; sequence: string; conditional: string; evidence: string };
 }
 
 export interface AnalysisV2Response {
@@ -950,9 +985,114 @@ export interface AnalysisV2Response {
   events: AnalysisV2Event[];
   interpretation: {
     context: AnalysisV2Context | null;
-    key_areas: AnalysisV2KeyArea[];
+    key_areas: AnalysisV2KeyArea[]; // active areas only
+    distant_key_area_count?: number; // areas beyond the active distance; counted, not listed
     confluence: AnalysisV2Confluence | null;
     narrative: string[];
+    sequences: AnalysisV2Sequence[];
   };
   scenarios: AnalysisV2Scenario[];
+}
+
+/** Offline LuxAlgo ICT reference, drawn as a chart overlay. Reimplementation, not validated. */
+export interface LuxalgoIctOverlay {
+  timeframe: string;
+  bars: number;
+  note: string;
+  fvg: { side: "bullish" | "bearish"; top: number; bottom: number; start_time: number; end_time: number }[];
+  order_blocks: {
+    side: "bullish" | "bearish"; top: number; bottom: number; start_time: number; end_time: number; breaker: boolean;
+  }[];
+  liquidity: { side: "buyside" | "sellside"; top: number; bottom: number; start_time: number; end_time: number }[];
+  structure: { kind: "MSS" | "BOS"; direction: "bullish" | "bearish"; level: number; from_time: number; time: number }[];
+  last_bar_time: number | null;
+}
+
+/** Top-Down Multi-Timeframe Entry Model: manual decision support. Heuristic confidence, never a
+ * probability. 1D/4H location & context -> 1H bias -> 15M setup -> 5M confirmation -> 1M precision
+ * (optional) -> entry candidate. Replaces the V1 rigid state machine; see
+ * docs/entry-model-v2-hierarchy.md. */
+export interface EntryModelConfidenceEvidence {
+  name: string; group: string; points: number; kind: "POSITIVE" | "NEGATIVE"; reason: string;
+}
+export interface EntryModelConfidence {
+  score: number; type: "HEURISTIC"; label: string;
+  positive: EntryModelConfidenceEvidence[]; negative: EntryModelConfidenceEvidence[];
+  caps: Record<string, number>; note: string;
+}
+export interface EntryModelChecklistItem {
+  name: string; status: "PASS" | "FAIL" | "WAITING" | "PARTIAL" | "NOT_APPLICABLE" | "INVALIDATED";
+  timeframe: string; reason: string; dependency: string | null;
+  evidence: EntryModelEvidence | null;
+}
+/** The same typed Evidence record Analysis V2 uses -- every conclusion traces to a timeframe, a
+ * timestamp, a kind, a price/value, and a source module. */
+export interface EntryModelEvidence {
+  timeframe: string; timestamp: string; kind: string; value: number | null; source: string; note: string;
+}
+export interface EntryModelKeyArea { low: number; high: number; side: "SUPPORT" | "RESISTANCE" | "MIXED"; strength: string; }
+export interface EntryModelNearestArea extends EntryModelKeyArea { strength_reason: string; distance_atr: number; }
+
+export interface EntryModelHigherTimeframe {
+  htf_location: "AT_ZONE" | "APPROACHING_ZONE" | "BETWEEN_ZONES" | "AWAY_FROM_ZONE" | "UNKNOWN";
+  htf_context: "BULLISH" | "BEARISH" | "NEUTRAL" | "TRANSITION";
+  d1_bias: string; h4_bias: string; d1_structure: string | null; h4_structure: string | null;
+  nearest_area: EntryModelNearestArea | null; relation: string | null;
+  key_areas: EntryModelKeyArea[];
+  major_d1_levels: { label: string; price: number; evidence: EntryModelEvidence }[];
+  checklist: EntryModelChecklistItem[];
+}
+export interface EntryModelIntraday {
+  intraday_bias: "BULLISH" | "BEARISH" | "NEUTRAL" | "TRANSITION";
+  compatible_with_htf: boolean | null;
+  structure: { state: string; last_bos: string | null; last_mss: string | null; reason: string } | null;
+  checklist: EntryModelChecklistItem[];
+}
+export interface EntryModelFvg {
+  direction: "bullish" | "bearish"; low: number; high: number; status: string; formed_at: string;
+}
+export interface EntryModelSetup15m {
+  setup_direction: "LONG" | "SHORT" | "NEUTRAL" | "CONFLICTED";
+  setup_status: "WAITING" | "SETUP_DEVELOPING" | "SETUP_CONFIRMED" | "CONFLICTED";
+  evidence_categories: string[];
+  supporting_evidence: EntryModelEvidence[]; contradicting_evidence: EntryModelEvidence[];
+  fvg: EntryModelFvg | null; ote: Record<string, unknown> | null;
+  checklist: EntryModelChecklistItem[];
+}
+export interface EntryModelConfirmation5m {
+  confirmation_status: "NOT_APPLICABLE" | "WAITING" | "DEVELOPING" | "CONFIRMED" | "CONFLICTED";
+  evidence_categories: string[];
+  supporting_evidence: EntryModelEvidence[]; contradicting_evidence: EntryModelEvidence[];
+  checklist: EntryModelChecklistItem[];
+}
+export interface EntryModelPrecision1m {
+  precision_status: "NOT_APPLICABLE" | "WAITING" | "AVAILABLE";
+  trigger: { time_utc: string; bar_index: number | null; direction: string; event_type: string;
+            price: number | null; closed_bar: true; detail: string } | null;
+  checklist: EntryModelChecklistItem[];
+}
+export interface EntryModelEntryCandidate {
+  direction: "LONG" | "SHORT"; entry: number;
+  stop: { price: number; basis: string } | null;
+  target: { price: number; basis: string } | null;
+  rr: number | null;
+  invalidation: { price: number | null; basis: string };
+}
+export interface EntryModelResult {
+  symbol: string;
+  direction: "LONG" | "SHORT" | "CONFLICTED" | null;
+  state: string;
+  as_of: string | null;
+  disclaimer: string;
+  higher_timeframe: EntryModelHigherTimeframe | null;
+  intraday: EntryModelIntraday | null;
+  setup_15m: EntryModelSetup15m | null;
+  confirmation_5m: EntryModelConfirmation5m | null;
+  precision_1m: EntryModelPrecision1m | null;
+  entry_candidate: EntryModelEntryCandidate | null;
+  confidence: EntryModelConfidence | null;
+  supporting_evidence: EntryModelEvidence[];
+  contradicting_evidence: EntryModelEvidence[];
+  invalidation: { text: string } | null;
+  next_condition: { text: string; timeframe: string } | null;
 }

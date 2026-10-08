@@ -18,6 +18,7 @@ import pandas as pd
 import config
 from analysis.liquidity import LiquidityEvent, detect_equal_levels, detect_sweeps
 from analysis.structure import analyze_structure, closed_only, compute_atr, displacement_at
+from analysis.v2.adx import latest_adx
 from analysis.v2.normalize import atr_normalized_distance, atr_percentile, range_ratio
 from analysis.v2.volume import volume_at
 from analysis.zones import compute_zones, current_session
@@ -63,6 +64,7 @@ class Observations:
     recent_high: Optional[float] = None  # highest high of the last RECENT_RANGE_BARS closed M5 bars
     recent_low: Optional[float] = None  # lowest low of the same window
     zone_distances_atr: Dict[str, float] = field(default_factory=dict)  # signed (level - price) / M5 ATR
+    adx_h1: Optional[float] = None  # Wilder ADX(14) on closed H1 bars; trend strength only, no direction
 
     @property
     def ready(self) -> bool:
@@ -162,6 +164,7 @@ def build_observations(candles: dict) -> Observations:
         range_ratio_m5=range_ratio_m5, displacement_m5=displacement, volume_m5=vol, zones=zones,
         sweeps=sweeps, equal_levels=equal, data_issues=tuple(issues),
         recent_high=recent_high, recent_low=recent_low,
+        adx_h1=_num(latest_adx(h1)) if h1 is not None else None,
         zone_distances_atr={name: atr_normalized_distance(level, current_price, atr_m5)
                             for name, level in zones.items()} if current_price is not None else {},
     )

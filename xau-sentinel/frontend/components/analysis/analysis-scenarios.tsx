@@ -18,8 +18,12 @@ function ScenarioCard({ scenario }: { scenario: AnalysisV2Scenario }) {
       <header className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold text-foreground">{SCENARIO_TITLE[scenario.name] ?? scenario.name}</h3>
         <Badge variant="outline" className="text-[10px]">{directionLabel}</Badge>
+        {scenario.state === "INVALIDATED" && <Badge variant="bearish" className="text-[10px]">invalidated</Badge>}
       </header>
       <p className="text-sm text-foreground leading-relaxed">{scenario.condition}</p>
+      {scenario.state === "INVALIDATED" && scenario.invalidated_reason && (
+        <p className="text-xs text-bearish">{scenario.invalidated_reason}</p>
+      )}
 
       {scenario.supporting_conditions.length > 0 && (
         <div>

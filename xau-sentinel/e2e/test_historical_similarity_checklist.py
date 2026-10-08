@@ -73,7 +73,8 @@ def main() -> int:
         page.on("pageerror", lambda exc: page_errors.append(str(exc)))
         page.on("requestfailed", lambda req: failed_requests.append(f"{req.method} {req.url}"))
 
-        page.goto(f"{BASE}/setups", wait_until="networkidle", timeout=30000)
+        page.goto(f"{BASE}/market", wait_until="networkidle", timeout=30000)
+        page.get_by_role("button", name="Historical similarity").first.click(timeout=15000)
         try:
             # A specific heading-role locator, not a loose text substring:
             # since Stage 10 the mock provider's echoed prompt (shown in the
@@ -83,10 +84,11 @@ def main() -> int:
             # ambiguous (matches this panel's own <h3> AND those two
             # unrelated paragraphs).
             page.get_by_role("heading", name="Historical Similarity").wait_for(state="visible", timeout=15000)
-            check("UI: Historical Similarity panel renders on the Setups page", True)
+            check("UI: Historical Similarity panel renders on the Market page", True)
         except Exception:
-            check("UI: Historical Similarity panel renders on the Setups page", False)
+            check("UI: Historical Similarity panel renders on the Market page", False)
 
+        page.get_by_role("button", name="A+ evidence and AI explanation").first.click(timeout=15000)
         try:
             page.get_by_text("A+ Strategy Evaluation", exact=False).wait_for(state="visible", timeout=10000)
             check("UI: Stage 4 A+ panel still renders (not disturbed by Stage 8)", True)

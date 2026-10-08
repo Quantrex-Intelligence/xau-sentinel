@@ -57,12 +57,13 @@ def main() -> int:
         page.on("pageerror", lambda exc: page_errors.append(str(exc)))
         page.on("requestfailed", lambda req: failed_requests.append(f"{req.method} {req.url}"))
 
-        page.goto(f"{BASE}/setups", wait_until="networkidle", timeout=30000)
+        page.goto(f"{BASE}/market", wait_until="networkidle", timeout=30000)
+        page.get_by_role("button", name="A+ evidence and AI explanation").first.click(timeout=15000)
         try:
             page.get_by_text("A+ Strategy Evaluation", exact=False).wait_for(state="visible", timeout=15000)
-            check("UI: Setups page still loads with the A+ panel", True)
+            check("UI: Market page still loads with the A+ panel", True)
         except Exception:
-            check("UI: Setups page still loads with the A+ panel", False)
+            check("UI: Market page still loads with the A+ panel", False)
 
         # The contextual analysis blocks live inside the A+ panel's "Full evaluation"
         # disclosure, which is collapsed by default since the summary-first layout
@@ -79,14 +80,15 @@ def main() -> int:
             check("UI: AI Interpretation section renders", False)
 
         try:
-            page.get_by_text("Historical Context", exact=False).wait_for(state="visible", timeout=5000)
+            # The A+ panel now mounts when its Details section opens, so its AI sections arrive later.
+            page.get_by_text("Historical Context", exact=False).wait_for(state="visible", timeout=15000)
             check("UI: Historical Context section renders", True)
         except Exception:
             check("UI: Historical Context section renders", False)
 
         page.wait_for_timeout(1000)
         body_text = page.inner_text("body").lower()
-        check("UI: no probability/win-forecast language anywhere on the Setups page",
+        check("UI: no probability/win-forecast language anywhere on the Market page",
               "probability" not in body_text and "chance of winning" not in body_text)
 
         check("UI: no browser console errors", len(console_errors) == 0 and len(page_errors) == 0,

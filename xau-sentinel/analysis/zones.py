@@ -100,6 +100,10 @@ def current_session(dt) -> str:
 
 
 def compute_session_vwap(df: pd.DataFrame) -> Optional[float]:
+    """Tick-volume-weighted typical price over the bars passed in. compute_zones
+    passes the current UTC calendar day's closed M5 bars, so this is a UTC-day
+    VWAP anchored at 00:00 UTC, not a trading-session VWAP. MT5 real_volume is
+    zero for this CFD symbol, so tick_volume is the only volume available."""
     if df is None or df.empty:
         return None
     typical = (df["high"] + df["low"] + df["close"]) / 3

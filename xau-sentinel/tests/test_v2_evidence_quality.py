@@ -93,39 +93,35 @@ def _atr_obs(atr=4.0):
     return Obs()
 
 
-def test_broken_levels_in_one_move_become_one_observation():
+def test_same_direction_breaks_in_one_move_become_one_lean_with_every_level_kept():
     t = pd.Timestamp("2026-10-05 05:05", tz="UTC")
     areas = [_broken(4132.41, 4132.41, "bullish", t),
-             _broken(4136.43, 4136.43, "bullish", t + pd.Timedelta(minutes=5))]
-    out = _consolidated_breaks(areas, 5.0)  # the levels are 4.02 apart: within one ATR of 5.0
-    assert len(out) == 1
+             _broken(4136.43, 4136.43, "bullish", t + pd.Timedelta(minutes=5)),
+             _broken(4150.0, 4150.0, "bullish", t + pd.Timedelta(minutes=40))]
+    out = _consolidated_breaks(areas)
+    assert len(out) == 1  # three bullish breaks are one continuing move, not three observations
     assert out[0].lean == "bullish"
-    assert "4132.41" in out[0].detail and "4136.43" in out[0].detail  # original levels kept
+    assert out[0].source == "broken levels (3)"
+    assert "4132.41" in out[0].detail and "4136.43" in out[0].detail and "4150.00" in out[0].detail
 
 
-def test_opposite_direction_breaks_are_not_consolidated():
+def test_opposite_direction_breaks_stay_separate_because_they_contradict():
     t = pd.Timestamp("2026-10-05 05:05", tz="UTC")
     areas = [_broken(4132.41, 4132.41, "bullish", t), _broken(4136.43, 4136.43, "bearish", t)]
-    assert len(_consolidated_breaks(areas, 4.0)) == 2
+    out = _consolidated_breaks(areas)
+    assert sorted(l.lean for l in out) == ["bearish", "bullish"]
 
 
-def test_breaks_far_apart_in_price_are_not_consolidated():
+def test_a_superseded_breakout_is_not_a_current_observation():
+    from dataclasses import replace as dc_replace
     t = pd.Timestamp("2026-10-05 05:05", tz="UTC")
-    areas = [_broken(4100.0, 4100.0, "bullish", t), _broken(4140.0, 4140.0, "bullish", t)]
-    assert len(_consolidated_breaks(areas, 4.0)) == 2
+    area = _broken(4132.41, 4132.41, "bullish", t)
+    stale = dc_replace(area, events=(dc_replace(area.events[0], superseded=True),))
+    assert _consolidated_breaks([stale]) == []
 
 
-def test_breaks_far_apart_in_time_are_not_consolidated():
-    t = pd.Timestamp("2026-10-05 05:05", tz="UTC")
-    areas = [_broken(4132.41, 4132.41, "bullish", t),
-             _broken(4134.0, 4134.0, "bullish", t + pd.Timedelta(hours=1))]
-    assert len(_consolidated_breaks(areas, 4.0)) == 2
-
-
-def test_without_an_atr_nothing_is_consolidated():
-    t = pd.Timestamp("2026-10-05 05:05", tz="UTC")
-    areas = [_broken(4132.41, 4132.41, "bullish", t), _broken(4132.5, 4132.5, "bullish", t)]
-    assert len(_consolidated_breaks(areas, None)) == 2
+def test_no_broken_areas_means_no_break_leans():
+    assert _consolidated_breaks([]) == []
 
 
 # --- 4: event identity ----------------------------------------------------------

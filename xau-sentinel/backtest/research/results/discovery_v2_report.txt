@@ -1,0 +1,150 @@
+== 1. OBJECTIVE
+Test whether the predictive meaning of sequences depends on context and location: P(outcome | sequence + context).
+
+== 2. DATASET AND SPLIT
+Rows: 35196  discovery (300, 17000)  validation (17000, 23382)  test (23382, 1000000000) (gated).
+Session windows: configured UTC hours (config.py). R unit: 1 ATR(14), stop at 1R, targets +1/+2/+3R.
+
+== 3. PREREGISTERED HYPOTHESES
+8 sequences x 4 contexts = 32 hypotheses.
+Sequences: LOW_R1 (BUY), LOW_R2 (BUY), LOW_C1 (SELL), LOW_C2 (SELL), HIGH_R1 (SELL), HIGH_R2 (SELL), HIGH_C1 (BUY), HIGH_C2 (BUY)
+
+== 4. NUMBER OF HYPOTHESES TESTED
+32 (fixed list). Bonferroni two-sided z = 3.16.
+
+== 5. BASELINES
+discovery: buy mean 2R expectancy -0.0984, sell mean 2R expectancy 0.0657 (all bars, matched per session in the effect).
+validation: buy mean 2R expectancy -0.0727, sell mean 2R expectancy 0.0752 (all bars, matched per session in the effect).
+
+== 6. STATISTICAL METHOD
+Effect = candidate expectancy (2R target, stop 1R) minus same-session, same-direction baseline.
+t-statistic is the paired mean of per-trigger effects over its standard error. Wilson intervals for win rates; bootstrap (2000 resamples, seed 7) for expectancy.
+
+== 7. CANDIDATE RESULTS (discovery | validation | walk-forward | classification)
+            hypothesis  dir  disc_n  disc_eff  disc_t  val_n  val_eff  val_t           wf_signs               class
+   LOW_R2 | h1_against  BUY       4   -0.8707 -238.46      3   0.0756   0.07  [-1.0, -1.0, 0.0] INSUFFICIENT SAMPLE
+  HIGH_R2 | h1_aligned SELL       4   -1.0568  -53.69      0      NaN    NaN  [-1.0, -1.0, 0.0] INSUFFICIENT SAMPLE
+  HIGH_R2 | h1_against SELL       3   -1.0836  -46.63      3  -0.1068  -0.11 [-1.0, -1.0, -1.0] INSUFFICIENT SAMPLE
+ LOW_C1 | key_location SELL       3   -1.0324  -20.81      1  -1.1002    NaN  [-1.0, -1.0, 0.0] INSUFFICIENT SAMPLE
+  HIGH_C1 | h1_aligned  BUY      17    1.0459    2.90      9   0.4128   0.79    [1.0, 1.0, 1.0] INSUFFICIENT SAMPLE
+        HIGH_R2 | none SELL      10   -0.7645   -2.44      3  -0.1068  -0.11 [-1.0, -1.0, -1.0] INSUFFICIENT SAMPLE
+  HIGH_C2 | h1_aligned  BUY      23    0.5364    1.68      8   0.9614   1.77    [1.0, 1.0, 1.0] INSUFFICIENT SAMPLE
+   LOW_R1 | h1_aligned  BUY      14    0.6049    1.46      1  -0.9420    NaN    [1.0, 1.0, 1.0] INSUFFICIENT SAMPLE
+         LOW_R2 | none  BUY      17   -0.3521   -1.24      7  -0.0497  -0.09  [1.0, -1.0, -1.0] INSUFFICIENT SAMPLE
+   LOW_R1 | h1_against  BUY      18   -0.3329   -1.22      7  -0.0848  -0.15 [-1.0, -1.0, -1.0] INSUFFICIENT SAMPLE
+        HIGH_C1 | none  BUY      50    0.2466    1.19     28   0.0449   0.17   [-1.0, 1.0, 1.0] INSUFFICIENT SAMPLE
+  HIGH_R1 | h1_aligned SELL      11    0.5579    1.18      4   0.4271   0.49   [-1.0, 1.0, 1.0] INSUFFICIENT SAMPLE
+         LOW_C1 | none SELL      74   -0.1842   -1.15     24  -0.2048  -0.72 [-1.0, -1.0, -1.0] INSUFFICIENT SAMPLE
+   LOW_C1 | h1_aligned SELL      27    0.2613    0.90     11   0.0243   0.05    [1.0, 1.0, 1.0] INSUFFICIENT SAMPLE
+        HIGH_C2 | none  BUY      57    0.1621    0.85     24   0.0847   0.29    [1.0, 1.0, 1.0] INSUFFICIENT SAMPLE
+   LOW_C2 | h1_aligned SELL      23    0.2295    0.73      7  -0.2076  -0.38  [-1.0, -1.0, 1.0] INSUFFICIENT SAMPLE
+  HIGH_R1 | h1_against SELL      11   -0.2645   -0.63      6   0.4341   0.64 [-1.0, -1.0, -1.0] INSUFFICIENT SAMPLE
+        HIGH_R1 | none SELL      37    0.1371    0.56     15   0.3337   0.84   [-1.0, 1.0, 1.0] INSUFFICIENT SAMPLE
+   LOW_R2 | h1_aligned  BUY       5   -0.2888   -0.48      0      NaN    NaN  [1.0, -1.0, -1.0] INSUFFICIENT SAMPLE
+   LOW_C2 | h1_against SELL       4   -0.3591   -0.48      5   0.7067   0.96  [-1.0, -1.0, 1.0] INSUFFICIENT SAMPLE
+  HIGH_C1 | h1_against  BUY       8    0.2362    0.43      8  -0.1766  -0.36  [-1.0, -1.0, 1.0] INSUFFICIENT SAMPLE
+         LOW_C2 | none SELL      54   -0.0805   -0.41     25  -0.1171  -0.41  [-1.0, -1.0, 1.0] INSUFFICIENT SAMPLE
+HIGH_C2 | key_location  BUY       2    0.6184    0.41      1  -0.8984    NaN    [1.0, 0.0, 0.0] INSUFFICIENT SAMPLE
+  HIGH_C2 | h1_against  BUY       9    0.1160    0.23      6  -0.4041  -0.81   [-1.0, 1.0, 1.0] INSUFFICIENT SAMPLE
+   LOW_C1 | h1_against SELL      12   -0.0742   -0.18      0      NaN    NaN  [-1.0, -1.0, 1.0] INSUFFICIENT SAMPLE
+         LOW_R1 | none  BUY      50    0.0271    0.14     15   0.0651   0.17   [1.0, -1.0, 1.0] INSUFFICIENT SAMPLE
+ LOW_R1 | key_location  BUY       1   -0.8670     NaN      0      NaN    NaN   [0.0, -1.0, 0.0] INSUFFICIENT SAMPLE
+ LOW_R2 | key_location  BUY       1   -0.8670     NaN      0      NaN    NaN   [0.0, -1.0, 0.0] INSUFFICIENT SAMPLE
+ LOW_C2 | key_location SELL       1   -1.1159     NaN      2   0.3998   0.27   [-1.0, 0.0, 0.0] INSUFFICIENT SAMPLE
+HIGH_R1 | key_location SELL       1    1.8931     NaN      0      NaN    NaN    [0.0, 0.0, 1.0] INSUFFICIENT SAMPLE
+HIGH_R2 | key_location SELL       1   -1.0372     NaN      0      NaN    NaN   [-1.0, 0.0, 0.0] INSUFFICIENT SAMPLE
+HIGH_C1 | key_location  BUY       1   -0.8816     NaN      0      NaN    NaN   [-1.0, 0.0, 0.0] INSUFFICIENT SAMPLE
+
+== 8. CONTINUATION VS REVERSAL (discovery + validation only)
+side      context       family sequence  n  p_plus2r  expectancy_2r  effect_2r
+ LOW         none     reversal   LOW_R1 65     0.312        -0.0615     0.0333
+ LOW         none     reversal   LOW_R2 24     0.208        -0.3750    -0.2668
+ LOW         none continuation   LOW_C1 98     0.296        -0.1122    -0.1896
+ LOW         none continuation   LOW_C2 79     0.329        -0.0127    -0.0922
+ LOW   h1_aligned     reversal   LOW_R1 15     0.467         0.4000     0.4997
+ LOW   h1_aligned     reversal   LOW_R2  5     0.200        -0.4000    -0.2947
+ LOW   h1_aligned continuation   LOW_C1 38     0.421         0.2632     0.1926
+ LOW   h1_aligned continuation   LOW_C2 30     0.400         0.2000     0.1284
+ LOW   h1_against     reversal   LOW_R1 25     0.208        -0.3600    -0.2637
+ LOW   h1_against     reversal   LOW_R2  7     0.143        -0.5714    -0.4605
+ LOW   h1_against continuation   LOW_C1 12     0.333         0.0000    -0.0735
+ LOW   h1_against continuation   LOW_C2  9     0.444         0.3333     0.2302
+ LOW key_location     reversal   LOW_R1  1     0.000        -1.0000    -0.8876
+ LOW key_location     reversal   LOW_R2  1     0.000        -1.0000    -0.8876
+ LOW key_location continuation   LOW_C1  4     0.000        -1.0000    -1.0544
+ LOW key_location continuation   LOW_C2  3     0.333         0.0000    -0.1116
+HIGH         none     reversal  HIGH_R1 52     0.423         0.2692     0.1951
+HIGH         none     reversal  HIGH_R2 13     0.154        -0.5385    -0.6155
+HIGH         none continuation  HIGH_C1 78     0.359         0.0769     0.1766
+HIGH         none continuation  HIGH_C2 81     0.346         0.0370     0.1403
+HIGH   h1_aligned     reversal  HIGH_R1 15     0.533         0.6000     0.5222
+HIGH   h1_aligned     reversal  HIGH_R2  4     0.000        -1.0000    -1.0575
+HIGH   h1_aligned continuation  HIGH_C1 26     0.577         0.7308     0.8325
+HIGH   h1_aligned continuation  HIGH_C2 31     0.516         0.5484     0.6481
+HIGH   h1_against     reversal  HIGH_R1 17     0.353         0.0588    -0.0171
+HIGH   h1_against     reversal  HIGH_R2  6     0.167        -0.5000    -0.5991
+HIGH   h1_against continuation  HIGH_C1 16     0.312        -0.0625     0.0390
+HIGH   h1_against continuation  HIGH_C2 15     0.267        -0.2000    -0.0901
+HIGH key_location     reversal  HIGH_R1  1     1.000         2.0000     1.8895
+HIGH key_location     reversal  HIGH_R2  1     0.000        -1.0000    -1.0395
+HIGH key_location continuation  HIGH_C1  1     0.000        -1.0000    -0.8863
+HIGH key_location continuation  HIGH_C2  3     0.333         0.0000     0.1137
+
+== 9. TEST SET (only candidates passing discovery, validation and walk-forward)
+No candidate was eligible. The test period was not evaluated for any hypothesis.
+
+== 10. WALK-FORWARD
+LOW_R1 | none: effect signs by discovery block [1.0, -1.0, 1.0]
+LOW_R1 | h1_aligned: effect signs by discovery block [1.0, 1.0, 1.0]
+LOW_R1 | h1_against: effect signs by discovery block [-1.0, -1.0, -1.0]
+LOW_R1 | key_location: effect signs by discovery block [0.0, -1.0, 0.0]
+LOW_R2 | none: effect signs by discovery block [1.0, -1.0, -1.0]
+LOW_R2 | h1_aligned: effect signs by discovery block [1.0, -1.0, -1.0]
+LOW_R2 | h1_against: effect signs by discovery block [-1.0, -1.0, 0.0]
+LOW_R2 | key_location: effect signs by discovery block [0.0, -1.0, 0.0]
+LOW_C1 | none: effect signs by discovery block [-1.0, -1.0, -1.0]
+LOW_C1 | h1_aligned: effect signs by discovery block [1.0, 1.0, 1.0]
+LOW_C1 | h1_against: effect signs by discovery block [-1.0, -1.0, 1.0]
+LOW_C1 | key_location: effect signs by discovery block [-1.0, -1.0, 0.0]
+LOW_C2 | none: effect signs by discovery block [-1.0, -1.0, 1.0]
+LOW_C2 | h1_aligned: effect signs by discovery block [-1.0, -1.0, 1.0]
+LOW_C2 | h1_against: effect signs by discovery block [-1.0, -1.0, 1.0]
+LOW_C2 | key_location: effect signs by discovery block [-1.0, 0.0, 0.0]
+HIGH_R1 | none: effect signs by discovery block [-1.0, 1.0, 1.0]
+HIGH_R1 | h1_aligned: effect signs by discovery block [-1.0, 1.0, 1.0]
+HIGH_R1 | h1_against: effect signs by discovery block [-1.0, -1.0, -1.0]
+HIGH_R1 | key_location: effect signs by discovery block [0.0, 0.0, 1.0]
+HIGH_R2 | none: effect signs by discovery block [-1.0, -1.0, -1.0]
+HIGH_R2 | h1_aligned: effect signs by discovery block [-1.0, -1.0, 0.0]
+HIGH_R2 | h1_against: effect signs by discovery block [-1.0, -1.0, -1.0]
+HIGH_R2 | key_location: effect signs by discovery block [-1.0, 0.0, 0.0]
+HIGH_C1 | none: effect signs by discovery block [-1.0, 1.0, 1.0]
+HIGH_C1 | h1_aligned: effect signs by discovery block [1.0, 1.0, 1.0]
+HIGH_C1 | h1_against: effect signs by discovery block [-1.0, -1.0, 1.0]
+HIGH_C1 | key_location: effect signs by discovery block [-1.0, 0.0, 0.0]
+HIGH_C2 | none: effect signs by discovery block [1.0, 1.0, 1.0]
+HIGH_C2 | h1_aligned: effect signs by discovery block [1.0, 1.0, 1.0]
+HIGH_C2 | h1_against: effect signs by discovery block [-1.0, 1.0, 1.0]
+HIGH_C2 | key_location: effect signs by discovery block [1.0, 0.0, 0.0]
+
+== 11. MULTIPLE COMPARISONS
+32 hypotheses, Bonferroni-corrected. Expected false positives by chance at alpha 0.05 uncorrected: 1.6.
+
+== 12. TRANSACTION COST
+Cost sensitivity: 0.10R per trade is subtracted from every effect (effect_2r_net_of_cost).
+
+== 13. ROBUSTNESS
+Parameter sensitivity (sweep window 12 vs 6 bars, key tolerance 0.25 vs 1.0 ATR) was NOT run in this pass.
+Direction stability is reported through the BUY and SELL rows of the same context; no separate test.
+
+== 14. FINAL CLASSIFICATION
+INSUFFICIENT SAMPLE    32
+
+== 15. FAILED AND REVERSED PATTERNS
+No hypothesis with adequate sample reversed sign between discovery and validation.
+
+== 16. LIMITATIONS
+Single symbol, single six-month window, hypothetical ATR-based R, no slippage model, no parameter sweep, one broker's history. Sequence windows (12 and 24 bars) were fixed a priori.
+
+== 17. RECOMMENDED NEXT RESEARCH STEP
+Replicate on a longer history before any candidate is considered. Do not promote a candidate from this report.

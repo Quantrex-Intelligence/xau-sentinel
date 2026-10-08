@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Panel } from "@/components/layout/panel";
 import { Badge } from "@/components/ui/badge";
 import { formatPrice } from "@/lib/format";
-import type { AnalysisV2Response, AnalysisV2Status, AnalysisV2TimeframeStructure } from "@/lib/types";
+import type { AnalysisV2Response, AnalysisV2Sequence, AnalysisV2Status, AnalysisV2TimeframeStructure } from "@/lib/types";
 import {
   ConfluenceSection,
   ContextSection,
@@ -161,6 +161,52 @@ function EventsList({ data }: { data: AnalysisV2Response }) {
   );
 }
 
+const SEQUENCE_STEP_LABEL: Record<string, string> = {
+  SWEEP: "Sweep",
+  STRUCTURE_SHIFT: "Structure shift",
+  DISPLACEMENT: "Displacement",
+  RETRACEMENT: "Retracement",
+};
+
+const SEQUENCE_STATUS_VARIANT: Record<string, "bullish" | "warning" | "bearish" | "outline"> = {
+  CONFIRMED: "bullish",
+  WAITING: "outline",
+  INVALIDATED: "bearish",
+  NOT_REACHED: "outline",
+};
+
+function SequencesPanel({ sequences }: { sequences: AnalysisV2Sequence[] }) {
+  return (
+    <Section title="Sequences" kind="interpreted">
+      {sequences.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No sweep has started a sequence in the recent closed bars.</p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {sequences.map((seq, i) => (
+            <li key={`${seq.sweep_time_utc}-${i}`} className="rounded-md border border-border px-3 py-2 flex flex-col gap-2">
+              <p className="text-sm text-foreground">{seq.wording.observed}</p>
+              <p className="text-xs text-muted-foreground">{seq.wording.sequence}</p>
+              {seq.wording.evidence && <p className="text-[11px] text-muted-foreground">{seq.wording.evidence}</p>}
+              <ol className="flex flex-wrap gap-1.5">
+                {seq.steps.map((st) => (
+                  <li key={st.name} className="flex items-center gap-1 text-[11px]">
+                    <Badge variant={SEQUENCE_STATUS_VARIANT[st.status] ?? "outline"}>
+                      {SEQUENCE_STEP_LABEL[st.name] ?? st.name} · {st.status.toLowerCase().replace("_", " ")}
+                    </Badge>
+                  </li>
+                ))}
+              </ol>
+              {seq.wording.conditional && (
+                <p className="text-xs text-muted-foreground">{seq.wording.conditional}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
 export function AnalysisView({ data, error, loading }: { data: AnalysisV2Response | null; error: Error | null; loading: boolean }) {
   if (error && !data) {
     return (
@@ -200,8 +246,9 @@ export function AnalysisView({ data, error, loading }: { data: AnalysisV2Respons
           <Overview data={data} />
           <StructureGrid structure={structure} />
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <KeyAreasSection areas={data.interpretation.key_areas} price={data.facts.observations?.current_price ?? null} />
+            <KeyAreasSection areas={data.interpretation.key_areas} price={data.facts.observations?.current_price ?? null} distantCount={data.interpretation.distant_key_area_count ?? 0} />
             <EventsList data={data} />
+          <SequencesPanel sequences={data.interpretation.sequences} />
           </div>
           <ContextSection data={data} />
           <ConfluenceSection data={data} />

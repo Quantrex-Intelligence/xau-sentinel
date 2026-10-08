@@ -16,7 +16,7 @@ from journal import trades as trades_repo
 from mt5 import market_data
 from tests.v2_fixtures import range_set, trend_set, with_forming_bar
 
-FORBIDDEN_TEXT = re.compile(r"probab|confiden|\bBUY\b|\bSELL\b|win rate|\bscore\b", re.IGNORECASE)
+FORBIDDEN_TEXT = re.compile(r"probab|confiden|\bBUY\b(?!-side)|\bSELL\b(?!-side)|win rate|\bscore\b", re.IGNORECASE)
 
 
 @pytest.fixture
@@ -62,8 +62,9 @@ def test_context_section_has_one_entry_per_independent_dimension(client, monkeyp
     monkeypatch.setattr(market_data, "get_candles", lambda tf, count=300: candles[tf])
     ctx = client.get("/api/analysis/v2").json()["interpretation"]["context"]
     assert set(ctx) == {"direction", "structure", "regime", "volatility", "volume",
-                        "liquidity", "momentum", "session", "price_location"}
-    for name in ("direction", "regime", "volatility", "volume", "liquidity", "momentum", "session", "price_location"):
+                        "liquidity", "momentum", "session", "price_location", "trend_strength"}
+    for name in ("direction", "regime", "volatility", "volume", "liquidity", "momentum", "session",
+                 "price_location", "trend_strength"):
         assert set(ctx[name]) == {"state", "detail"}
 
 

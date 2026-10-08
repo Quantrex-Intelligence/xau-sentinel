@@ -1,4 +1,4 @@
-"""API-level tests for /api/strategy/aplus. Same style as tests/test_api.py
+"""API-level tests for /api/strategy/aplus (legacy source, which these fixtures target; the V2 primary path has its own tests in tests/test_v2_primary_path.py). Same style as tests/test_api.py
 and tests/test_ai_api.py: a TestClient bound to an isolated per-test DB,
 proving the route is a thin pass-through over ai.strategy.evaluator plus
 the one side effect it owns (non-duplicating A+ alerts).
@@ -89,7 +89,7 @@ def _force_a_plus_buy(monkeypatch, minutes_ago=10, sweep_time=None):
 
 def test_aplus_endpoint_matches_direct_evaluator_call(api_client, monkeypatch):
     _force_a_plus_buy(monkeypatch)
-    resp = api_client.get("/api/strategy/aplus")
+    resp = api_client.get("/api/strategy/aplus?source=legacy")
     assert resp.status_code == 200
     body = resp.json()
     assert body["rating"] == "A+"
@@ -103,13 +103,13 @@ def test_aplus_endpoint_matches_direct_evaluator_call(api_client, monkeypatch):
 def test_aplus_endpoint_returns_503_on_market_data_error(api_client, monkeypatch):
     monkeypatch.setattr(market_data, "get_all_candles",
                          Mock(side_effect=market_data.MarketDataError("MT5 not connected")))
-    resp = api_client.get("/api/strategy/aplus")
+    resp = api_client.get("/api/strategy/aplus?source=legacy")
     assert resp.status_code == 503
 
 
 def test_aplus_endpoint_logs_exactly_one_alert_for_an_a_plus_result(api_client, monkeypatch):
     _force_a_plus_buy(monkeypatch)
-    resp = api_client.get("/api/strategy/aplus")
+    resp = api_client.get("/api/strategy/aplus?source=legacy")
     assert resp.status_code == 200
 
     alerts = trades_repo.recent_alerts(limit=20)
@@ -125,7 +125,7 @@ def test_aplus_endpoint_never_duplicates_the_alert_on_repeated_polls(api_client,
     sweep_time = datetime.now(timezone.utc) - timedelta(minutes=10)
     for _ in range(5):
         _force_a_plus_buy(monkeypatch, sweep_time=sweep_time)  # re-arm the mocks, same candidate each time
-        resp = api_client.get("/api/strategy/aplus")
+        resp = api_client.get("/api/strategy/aplus?source=legacy")
         assert resp.status_code == 200
 
     alerts = trades_repo.recent_alerts(limit=20)
@@ -138,10 +138,10 @@ def test_aplus_endpoint_alerts_again_for_a_genuinely_new_candidate(api_client, m
     again — dedup is per-candidate, not a global "already alerted once
     ever" latch."""
     _force_a_plus_buy(monkeypatch, minutes_ago=10)
-    api_client.get("/api/strategy/aplus")
+    api_client.get("/api/strategy/aplus?source=legacy")
 
     _force_a_plus_buy(monkeypatch, minutes_ago=5)  # different sweep timestamp -> different dedup_key
-    api_client.get("/api/strategy/aplus")
+    api_client.get("/api/strategy/aplus?source=legacy")
 
     alerts = trades_repo.recent_alerts(limit=20)
     a_plus_alerts = alerts[alerts["level"] == "a_plus"]
@@ -157,7 +157,7 @@ def test_aplus_endpoint_never_alerts_when_not_a_plus(api_client, monkeypatch):
     monkeypatch.setattr(evaluator_mod, "detect_equal_levels", Mock(return_value=[]))
     monkeypatch.setattr(config, "AI_PROVIDER", "mock")
 
-    resp = api_client.get("/api/strategy/aplus")
+    resp = api_client.get("/api/strategy/aplus?source=legacy")
     assert resp.status_code == 200
     assert resp.json()["rating"] != "A+"
 

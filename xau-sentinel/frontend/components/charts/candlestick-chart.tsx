@@ -13,38 +13,67 @@ import {
   type Time,
 } from "lightweight-charts";
 import { api } from "@/lib/api";
-import type { Candle, Liquidity, Setup, Timeframe } from "@/lib/types";
+import { buildIctDrawing } from "@/lib/ict-drawing";
+import { IctOverlayPrimitive } from "./ict-overlay-primitive";
+import type {
+  AnalysisV2Event,
+  AnalysisV2Response,
+  Candle,
+  Liquidity,
+  LuxalgoIctOverlay,
+  StrategyEvaluation,
+  Timeframe,
+} from "@/lib/types";
 
-const ZONE_COLORS: Record<string, string> = {
+const LEVEL_COLORS: Record<string, string> = {
   "Previous Day High": "#e06c75", "Previous Day Low": "#e06c75",
-  "Current Day High": "#c678dd", "Current Day Low": "#c678dd",
   "Asian High": "#d19a66", "Asian Low": "#d19a66",
   "London High": "#56b6c2", "London Low": "#56b6c2",
-  "H1 Swing High": "#98c379", "H1 Swing Low": "#98c379",
-  "H4 Swing High": "#e5c07b", "H4 Swing Low": "#e5c07b",
   "VWAP": "#abb2bf",
 };
 
-const DEFAULT_CHART_ZONES = ["Previous Day High", "Previous Day Low", "Current Day High", "Current Day Low", "VWAP"];
+/** Levels the Market chart draws: previous day, the Asian and London session extremes, and VWAP. */
+const CHART_LEVELS = ["Previous Day High", "Previous Day Low", "Asian High", "Asian Low", "London High", "London Low", "VWAP"];
+
+/** Active key areas drawn on the chart. The nearest few to price, so the chart stays readable. */
+const MAX_AREA_LINES = 4;
+
+const AREA_COLORS: Record<string, string> = { RESISTANCE: "#e06c75", SUPPORT: "#98c379" };
+
+const STRUCTURE_STYLE: Record<string, { shape: "circle" | "square"; text: string; color: string }> = {
+  MSS: { shape: "circle", text: "MSS", color: "#e5c07b" },
+  BOS: { shape: "square", text: "BOS", color: "#abb2bf" },
+  DISPLACEMENT: { shape: "square", text: "DSP", color: "#61afef" },
+};
 
 export interface ChartOverlayToggles {
+  /** Previous day, session and VWAP levels. */
   zones: boolean;
   liquidity: boolean;
+  /** Structure shifts, BOS and displacement from the V2 events (M5 only). */
+  structure: boolean;
+  /** Nearest active key areas from the V2 analysis. */
+  areas: boolean;
+  /** A+ entry, stop and target from the current evaluation. */
   setup: boolean;
+  /** ICT (LuxAlgo) reimplementation: FVG, order blocks, liquidity and MSS/BOS. Off-chart tool, not validated. */
+  ict: boolean;
 }
 
 export function CandlestickChart({
   timeframe,
   zones,
   liquidity,
-  setup,
+  analysis,
+  aplus,
   latestCandle,
   overlays,
 }: {
   timeframe: Timeframe;
   zones: Record<string, number>;
   liquidity: Liquidity;
-  setup: Setup | null;
+  analysis: AnalysisV2Response | null;
+  aplus: StrategyEvaluation | null;
   latestCandle: Candle | null;
   overlays: ChartOverlayToggles;
 }) {
@@ -57,12 +86,32 @@ export function CandlestickChart({
   // call a chart/series method once disposal has started. Every other
   // effect below checks this before touching chartRef/seriesRef.
   const disposedRef = useRef(false);
+  const ictRef = useRef<IctOverlayPrimitive | null>(null);
   // Tracks which timeframe the last fetch outcome belongs to, so "loading"
   // is derived (true whenever the current `timeframe` hasn't resolved yet)
   // instead of set synchronously at the top of the fetch effect.
   const [fetchResult, setFetchResult] = useState<{ timeframe: Timeframe; error: string | null } | null>(null);
   const loading = fetchResult?.timeframe !== timeframe;
   const error = fetchResult?.timeframe === timeframe ? fetchResult.error : null;
+
+  // ICT (LuxAlgo) overlay: fetched for the current timeframe while the toggle is on, refreshed every 30 s.
+  const [ictState, setIctState] = useState<{ timeframe: Timeframe; data: LuxalgoIctOverlay | null; error: string | null } | null>(null);
+  useEffect(() => {
+    if (!overlays.ict) return;
+    let cancelled = false;
+    const load = () =>
+      api
+        .luxalgoIct(timeframe, 300)
+        .then((data) => !cancelled && setIctState({ timeframe, data, error: null }))
+        .catch((err) => !cancelled && setIctState({ timeframe, data: null, error: err.message }));
+    load();
+    const id = setInterval(load, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [timeframe, overlays.ict]);
+  const ictData = overlays.ict && ictState?.timeframe === timeframe ? ictState.data : null;
 
   // Chart lifecycle: created once, disposed on unmount.
   useEffect(() => {
@@ -83,8 +132,12 @@ export function CandlestickChart({
     });
     chartRef.current = chart;
     seriesRef.current = series;
+    const ict = new IctOverlayPrimitive();
+    series.attachPrimitive(ict);
+    ictRef.current = ict;
     return () => {
       disposedRef.current = true;
+      ictRef.current = null;
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -123,17 +176,15 @@ export function CandlestickChart({
     });
   }, [latestCandle, timeframe]);
 
-  // Zone price lines.
+  // Level price lines (previous day, sessions, VWAP).
   useEffect(() => {
     const series = seriesRef.current;
     if (!series || disposedRef.current) return;
-    const lines = (overlays.zones ? Object.keys(zones) : []).filter((name) =>
-      DEFAULT_CHART_ZONES.includes(name)
-    );
+    const lines = (overlays.zones ? Object.keys(zones) : []).filter((name) => CHART_LEVELS.includes(name));
     const created = lines.map((name) =>
       series.createPriceLine({
         price: zones[name],
-        color: ZONE_COLORS[name] ?? "#abb2bf",
+        color: LEVEL_COLORS[name] ?? "#abb2bf",
         lineWidth: 1,
         lineStyle: 2,
         title: name,
@@ -149,32 +200,54 @@ export function CandlestickChart({
     };
   }, [zones, overlays.zones]);
 
-  // Setup entry/SL/TP price lines.
+  // Nearest active key areas, as a low and a high line each.
   useEffect(() => {
     const series = seriesRef.current;
-    if (!series || disposedRef.current || !overlays.setup || setup?.state !== "VALID") return;
+    if (!series || disposedRef.current || !overlays.areas || !analysis) return;
+    const areas = [...analysis.interpretation.key_areas]
+      .sort((a, b) => Math.abs(a.distance_atr ?? 1e9) - Math.abs(b.distance_atr ?? 1e9))
+      .slice(0, MAX_AREA_LINES);
     const created: IPriceLine[] = [];
-    if (setup.stop_loss !== null)
-      created.push(series.createPriceLine({ price: setup.stop_loss, color: "#ef5350", lineWidth: 2, lineStyle: 0, title: "SL" }));
-    if (setup.take_profit !== null)
-      created.push(series.createPriceLine({ price: setup.take_profit, color: "#26a69a", lineWidth: 2, lineStyle: 0, title: "TP" }));
-    if (setup.entry_zone)
-      created.push(series.createPriceLine({ price: setup.entry_zone[0], color: "#61afef", lineWidth: 1, lineStyle: 3, title: "Entry" }));
+    areas.forEach((a, i) => {
+      const color = AREA_COLORS[a.side] ?? "#abb2bf";
+      created.push(series.createPriceLine({ price: a.low, color, lineWidth: 1, lineStyle: 1, title: "" }));
+      created.push(series.createPriceLine({ price: a.high, color, lineWidth: 1, lineStyle: 1, title: i === 0 ? "Area" : "" }));
+    });
     return () => {
       if (disposedRef.current) return;
       created.forEach((l) => series.removePriceLine(l));
     };
-  }, [setup, overlays.setup]);
+  }, [analysis, overlays.areas]);
 
-  // Liquidity sweep / equal-level markers.
+  // A+ entry, stop and target from the current evaluation (shown only once a candidate exists).
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || disposedRef.current || !overlays.setup || !aplus || aplus.direction === null) return;
+    const created: IPriceLine[] = [];
+    if (aplus.stop_loss !== null)
+      created.push(series.createPriceLine({ price: aplus.stop_loss, color: "#ef5350", lineWidth: 2, lineStyle: 0, title: "SL" }));
+    if (aplus.target !== null)
+      created.push(series.createPriceLine({ price: aplus.target, color: "#26a69a", lineWidth: 2, lineStyle: 0, title: "TP" }));
+    if (aplus.entry !== null)
+      created.push(series.createPriceLine({ price: aplus.entry, color: "#61afef", lineWidth: 1, lineStyle: 3, title: "Entry" }));
+    return () => {
+      if (disposedRef.current) return;
+      created.forEach((l) => series.removePriceLine(l));
+    };
+  }, [aplus, overlays.setup]);
+
+  // ICT (LuxAlgo) overlay: boxes, lines and labels, painted by the series primitive.
+  useEffect(() => {
+    ictRef.current?.setDrawing(buildIctDrawing(ictData));
+  }, [ictData]);
+
+  // Markers: liquidity sweeps and equal levels, plus structure events on M5.
   useEffect(() => {
     const series = seriesRef.current;
     if (!series || disposedRef.current) return;
-    // No text labels — with several events clustered close together on M5
-    // the labels overlapped into an unreadable pile; shape + color + the
-    // hoverable tooltip-free legend (sweeps arrows, equal-levels dots) is
-    // enough to read at a glance, matching "do not overcrowd the chart."
-    const markers: SeriesMarker<Time>[] = overlays.liquidity
+    // No text labels on sweeps or equal levels — with several events clustered
+    // close together on M5 the labels overlapped into an unreadable pile.
+    const liquidityMarkers: SeriesMarker<Time>[] = overlays.liquidity
       ? [
           ...liquidity.sweeps
             .filter((s) => s.time !== null)
@@ -194,12 +267,29 @@ export function CandlestickChart({
             })),
         ]
       : [];
+    const structureMarkers: SeriesMarker<Time>[] =
+      overlays.structure && timeframe === "M5" && analysis
+        ? analysis.events
+            .filter((e) => e.kind in STRUCTURE_STYLE)
+            .map((e: AnalysisV2Event) => {
+              const style = STRUCTURE_STYLE[e.kind];
+              const bullish = e.direction === "bullish";
+              return {
+                time: Math.floor(Date.parse(e.time_utc) / 1000) as Time,
+                position: (bullish ? "belowBar" : "aboveBar") as "aboveBar" | "belowBar",
+                color: style.color,
+                shape: style.shape,
+                text: style.text,
+              };
+            })
+        : [];
+    const markers = [...liquidityMarkers, ...structureMarkers].sort((a, b) => (a.time as number) - (b.time as number));
     const plugin = createSeriesMarkers(series, markers);
     return () => {
       if (disposedRef.current) return;
       plugin.detach();
     };
-  }, [liquidity, overlays.liquidity]);
+  }, [liquidity, overlays.liquidity, overlays.structure, analysis, timeframe]);
 
   return (
     <div className="relative w-full h-full min-h-[420px]">

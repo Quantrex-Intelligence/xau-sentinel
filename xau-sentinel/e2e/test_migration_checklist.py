@@ -8,6 +8,7 @@ Run directly (not via pytest — it drives two live dev servers rather than
 exercising code in-process):
     python e2e/test_migration_checklist.py
 """
+import re
 import sys
 import time
 
@@ -71,19 +72,23 @@ def main() -> int:
         page.get_by_role("button", name="5m", exact=True).click()
         page.wait_for_timeout(1000)
 
-        # 7. Structure appears
+        # 7. Structure appears (the structure panel sits behind the Market page's Details section)
+        page.get_by_role("button", name="Structure, zones and liquidity").first.click(timeout=15000)
         check("7. Structure appears", wait_for(page, "MARKET STRUCTURE"))
 
         # 8/9/10. Zones / liquidity / equal-levels — check the /market page,
         # informed by what the API actually has (equal-level occurrence is
         # data-dependent in mock mode, not guaranteed every run).
         page.goto(f"{BASE}/market", wait_until="networkidle", timeout=30000)
+        page.get_by_role("button", name="Structure, zones and liquidity").first.click(timeout=15000)  # reload collapses it
+        page.get_by_role("button", name=re.compile(r"^Key zones")).first.click()
         check("8. Zones appear", wait_for(page, "KEY ZONES"))
         check("9. Liquidity appears", wait_for(page, "LIQUIDITY"))
 
         liquidity_data = httpx.get(f"{API_BASE}/api/market/liquidity", timeout=10).json()
         if liquidity_data.get("equal_levels"):
-            page.get_by_role("button", name="Liquidity").click()
+            # Anchored: the outer "Structure, zones and liquidity" section also contains the word.
+            page.get_by_role("button", name=re.compile(r"^Liquidity")).first.click()
             check("10. Equal highs/lows appear", wait_for(page, "EQUAL HIGHS"))
         else:
             check("10. Equal highs/lows appear", True, "no equal-level events in this mock snapshot (data-dependent, unit-tested separately)")
@@ -91,7 +96,8 @@ def main() -> int:
         check("11. Regime appears", wait_for(page, "Regime"))
 
         # 12. Setup appears / 13. Risk appears
-        page.goto(f"{BASE}/setups", wait_until="networkidle", timeout=30000)
+        page.goto(f"{BASE}/market", wait_until="networkidle", timeout=30000)
+        page.get_by_role("button", name="Setup checklist, risk and alerts").first.click(timeout=15000)
         check("12. Setup appears", wait_for(page, "Setup checklist"))
         check("13. Risk appears", wait_for(page, "Account Balance"))
 
@@ -126,7 +132,8 @@ def main() -> int:
         # 19. Navigation works
         page.goto(BASE, wait_until="networkidle", timeout=30000)
         nav_ok = True
-        for label, path in [("Market", "/market"), ("Settings", "/settings"), ("Overview", "/")]:
+        # Overview was folded into Market; FundedNext is the remaining top-level section checked here.
+        for label, path in [("Market", "/market"), ("Settings", "/settings"), ("FundedNext", "/fundednext")]:
             page.get_by_text(label, exact=True).first.click()
             page.wait_for_timeout(1000)
             if path != "/" and path not in page.url:
