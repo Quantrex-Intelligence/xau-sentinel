@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMarket } from "@/lib/market-context";
 import { api } from "@/lib/api";
 import { usePolling } from "@/lib/use-polling";
 import { marketStory, scenarioViews } from "@/lib/market-view";
 import { detectConflict } from "@/lib/market-conflict";
 import type { Timeframe } from "@/lib/types";
-import { CandlestickChart, type ChartOverlayToggles } from "@/components/charts/candlestick-chart";
+import { CandlestickChart, type ChartHandle, type ChartOverlayToggles } from "@/components/charts/candlestick-chart";
 import { ChartControls } from "@/components/charts/chart-controls";
 import { Disclosure } from "@/components/layout/disclosure";
 import { SnapshotStrip } from "@/components/market/snapshot-strip";
@@ -42,6 +42,8 @@ export default function MarketPage() {
   const { snapshot } = useMarket();
   const [timeframe, setTimeframe] = useState<Timeframe>("M5");
   const [overlays, setOverlays] = useState<ChartOverlayToggles>(DEFAULT_OVERLAYS);
+  const [priceScaleLocked, setPriceScaleLocked] = useState(false);
+  const chartHandle = useRef<ChartHandle>(null);
 
   // Read-only sources. Each one is the existing API; nothing here is recomputed.
   const v2 = usePolling(() => api.analysisV2(), 15000);
@@ -80,9 +82,13 @@ export default function MarketPage() {
           onTimeframeChange={setTimeframe}
           overlays={overlays}
           onOverlaysChange={setOverlays}
+          priceScaleLocked={priceScaleLocked}
+          onPriceScaleLockedChange={setPriceScaleLocked}
+          chartHandle={chartHandle}
         />
-        <div className="h-[400px] border-t border-border">
+        <div className="h-[clamp(420px,60vh,720px)] border-t border-border">
           <CandlestickChart
+            ref={chartHandle}
             timeframe={timeframe}
             zones={snapshot?.zones ?? {}}
             liquidity={snapshot?.liquidity ?? { sweeps: [], equal_levels: [] }}
@@ -90,6 +96,9 @@ export default function MarketPage() {
             aplus={aplus.data}
             latestCandle={snapshot?.latest_m5_candle ?? null}
             overlays={overlays}
+            priceScaleLocked={priceScaleLocked}
+            onResetPriceScale={() => setPriceScaleLocked(false)}
+            onPriceScaleManualDrag={() => setPriceScaleLocked(true)}
           />
         </div>
       </div>
