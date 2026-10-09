@@ -15,6 +15,7 @@ import { WhatMattersNow } from "@/components/market/what-matters-now";
 import { AplusSetupCard } from "@/components/market/aplus-setup-card";
 import { ScenariosCard } from "@/components/market/scenarios-card";
 import { EntryModelCard } from "@/components/market/entry-model-card";
+import { EntryJudgeCard } from "@/components/market/entry-judge-card";
 import { ConflictBanner } from "@/components/market/conflict-banner";
 import { StructurePanel } from "@/components/market/structure-panel";
 import { ZonesPanel } from "@/components/market/zones-panel";
@@ -47,6 +48,7 @@ export default function MarketPage() {
   const aplus = usePolling(() => api.strategyAPlus(), 15000);
   const risk = usePolling(() => api.fundedNextStatus(), 30000);
   const entry = usePolling(() => api.entryModel(), 30000);
+  const entryJudge = usePolling(() => api.entryModelJudge(), 30000);
 
   const story = useMemo(() => marketStory(v2.data), [v2.data]);
   const nextCondition = aplus.data?.criteria.find((c) => c.status !== "passed")?.name ?? null;
@@ -100,6 +102,9 @@ export default function MarketPage() {
       <ConflictBanner conflict={conflict} />
       <div data-testid="entry-model-card">
         <EntryModelCard result={entry.data} />
+      </div>
+      <div data-testid="entry-judge-card">
+        <EntryJudgeCard result={entryJudge.data} />
       </div>
 
       <ScenariosCard scenarios={scenarios} />

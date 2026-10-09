@@ -147,6 +147,7 @@ export const api = {
   strategyAPlus: () => request<StrategyEvaluation>("/api/strategy/aplus"),
   analysisV2: () => request<AnalysisV2Response>("/api/analysis/v2"),
   entryModel: () => request<import("./types").EntryModelResult>("/api/entry-model"),
+  entryModelJudge: () => request<import("./types").EntryModelJudgeResult>("/api/entry-model/judge"),
   luxalgoIct: (timeframe: string, count = 300) =>
     request<import("./types").LuxalgoIctOverlay>(`/api/tools/luxalgo-ict?timeframe=${timeframe}&count=${count}`),
 

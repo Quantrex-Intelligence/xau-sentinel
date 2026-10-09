@@ -1096,3 +1096,39 @@ export interface EntryModelResult {
   invalidation: { text: string } | null;
   next_condition: { text: string; timeframe: string } | null;
 }
+
+/** LLM Setup Judge V1 (shadow mode) -- an independent, experimental review of the deterministic
+ * Entry Model's own evidence. Never affects direction/state/entry_candidate; see
+ * ai/entry_judge/__init__.py. `eligible` is false whenever the current Entry Model state isn't one
+ * of the four states the Judge reviews -- `verdict`/`quality`/etc. are then all null, never
+ * fabricated placeholders. */
+export type EntryJudgeVerdict = "SUPPORTED" | "CAUTION" | "REJECTED" | "INSUFFICIENT_EVIDENCE";
+export type EntryJudgeQuality = "HIGH" | "MODERATE" | "LOW" | "UNASSESSABLE";
+
+export interface EntryModelJudgeResult {
+  enabled: boolean;
+  eligible: boolean;
+  status: "OK" | "FAILED" | null;
+  error_category: string | null;
+  candidate_key: string | null;
+  direction: string | null;
+  state: string | null;
+  symbol: string | null;
+  evaluated_at: string | null;
+  candidate_created_at: string | null;
+  is_reassessment: boolean | null;
+  llm_provider: string | null;
+  llm_model: string | null;
+  prompt_version: string | null;
+  verdict: EntryJudgeVerdict | null;
+  quality: EntryJudgeQuality | null;
+  supporting_evidence: string[];
+  contradictions: string[];
+  missing_confirmations: string[];
+  risk_flags: string[];
+  reasoning_summary: string | null;
+  invalidation_conditions: string[];
+  evidence_references: string[];
+  not_eligible_reason: string | null;
+  disclaimer: string;
+}

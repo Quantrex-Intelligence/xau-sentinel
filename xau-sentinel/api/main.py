@@ -23,7 +23,7 @@ from ai.notifications import delivery as notification_delivery
 from api.routes import (
     ai, alerts, analysis_v2, digest, explanations, fundednext, fundednext_mcp, journal, knowledge, market, market_intelligence,
     memory, monitoring, notifications, risk, settings, setup, similarity, strategy, strategy_analytics,
-    trade_review, tools, entry_model,
+    trade_review, tools, entry_model, entry_model_judge,
 )
 from api import ws
 
@@ -222,6 +222,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router)
     app.include_router(tools.router)
     app.include_router(entry_model.router)
+    app.include_router(entry_model_judge.router)
     app.include_router(memory.router)
     app.include_router(similarity.router)
     app.include_router(market_intelligence.router)

@@ -287,3 +287,15 @@ FUNDEDNEXT_MCP_CACHE_TTL_SECONDS = int(os.getenv("FUNDEDNEXT_MCP_CACHE_TTL_SECON
 # AI_STRATEGY_SWEEP_WINDOW_MINUTES. The setup timeframe is M15, so 8 bars is about 2 hours. This is a
 # starting value for research, not a claim that 8 is optimal — see docs/entry-model-v1-plan.md.
 ENTRY_MODEL_SWEEP_MAX_BARS = int(os.getenv("ENTRY_MODEL_SWEEP_MAX_BARS", 8))
+
+
+# --- Entry Model V2 LLM Setup Judge (shadow mode, ai/entry_judge/) ---
+# Independent of AI_JUDGE_ENABLED above, which is a different feature (ai/verification.py's chat-
+# answer fact-checker). This judge never affects direction/state/entry_candidate; disabling it only
+# stops the /api/entry-model/judge route from calling a provider at all.
+ENTRY_JUDGE_ENABLED = _env_bool("ENTRY_JUDGE_ENABLED", True)
+# Reuses AI_PROVIDER/AI_MODEL (ai/providers/__init__.py::get_provider() has no per-call model
+# override), so there is no separate ENTRY_JUDGE_MODEL knob — the judge always runs on whichever
+# provider/model the rest of the app is configured for.
+ENTRY_JUDGE_MAX_RETRIES = int(os.getenv("ENTRY_JUDGE_MAX_RETRIES", 1))  # retried only on a request-level failure or timeout
+ENTRY_JUDGE_TIMEOUT_SECONDS = float(os.getenv("ENTRY_JUDGE_TIMEOUT_SECONDS", 20.0))

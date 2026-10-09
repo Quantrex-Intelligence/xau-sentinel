@@ -28,6 +28,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     MetaData,
     String,
@@ -285,4 +286,35 @@ digest_deliveries = Table(
     Column("channel", Text, nullable=False),
     Column("sent_at", TIMESTAMP(timezone=True), nullable=False),
     UniqueConstraint("digest_type", "period_start", "period_end", "channel", name="idx_digest_deliveries_identity"),
+)
+
+# --- Entry Model V2 LLM Setup Judge (shadow mode, ai/entry_judge/) --------
+# Deliberately append-only, unlike explanations/trade_reviews above: this task requires that
+# reassessments of the same candidate be distinguishable from the original evaluation, not
+# overwritten by it. No UNIQUE constraint on candidate_key -- every judged attempt (success or
+# failure) gets its own row; `is_reassessment` and the (candidate_key, evaluated_at) ordering are
+# how a caller finds "the latest one" or "the full history" for a given real-world setup.
+
+entry_model_judgments = Table(
+    "entry_model_judgments",
+    metadata,
+    Column("id", Integer, Identity(), primary_key=True),
+    Column("candidate_key", Text, nullable=False),
+    Column("direction", Text, nullable=False),
+    Column("state", Text, nullable=False),
+    Column("symbol", Text, nullable=False),
+    Column("snapshot_fingerprint", Text, nullable=False),
+    Column("snapshot", Text, nullable=False),
+    Column("candidate_created_at", TIMESTAMP(timezone=True), nullable=False),
+    Column("evaluated_at", TIMESTAMP(timezone=True), nullable=False),
+    Column("llm_provider", Text),
+    Column("llm_model", Text),
+    Column("prompt_version", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("error_category", Text),
+    Column("verdict", Text),
+    Column("quality", Text),
+    Column("verdict_payload", Text),
+    Column("is_reassessment", Boolean, nullable=False),
+    Index("idx_entry_model_judgments_candidate_key", "candidate_key"),
 )
